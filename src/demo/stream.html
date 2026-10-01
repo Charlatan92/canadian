@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Stream de démonstration</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+      .player { position: absolute; inset: 0; display: grid; place-items: center; }
+      video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+      canvas { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="player"><video id="v" playsinline></video></div>
+    <canvas id="c" width="1280" height="720"></canvas>
+    <script type="module" src="stream.js"></script>
+  </body>
+</html>

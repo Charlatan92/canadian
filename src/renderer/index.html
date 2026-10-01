@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' https: data: blob:; media-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' blob: data:; font-src 'self' data:"
+    />
+    <title>Habs Régie</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header id="topbar">
+      <div class="brand"><span class="brand-ch">CH</span><span class="brand-name">Régie</span></div>
+
+      <div id="game-pill" class="pill" title="Score et temps tels que vus sur le stream (aucun divulgâcheur)">
+        <span class="muted">Recherche du match…</span>
+      </div>
+
+      <div class="stream-picker">
+        <button id="btn-prev" class="icon-btn" title="Stream précédent (P)">◀</button>
+        <span id="stream-health" class="dot" title="État du stream"></span>
+        <select id="stream-select" title="Streams trouvés pour le match"></select>
+        <button id="btn-next" class="icon-btn" title="Stream suivant (N)">▶</button>
+        <button id="btn-home" class="icon-btn" title="Revenir à la page OnHockey.tv">⌂</button>
+        <button id="btn-refresh-streams" class="icon-btn" title="Relire la liste des streams">⟳</button>
+      </div>
+
+      <div class="spacer"></div>
+
+      <button id="mode-pill" class="pill pill-btn" title="Cliquer pour forcer le mode (M)">
+        <span class="mode-dot"></span><span id="mode-label">—</span>
+      </button>
+      <div id="sync-pill" class="pill" title="Synchronisation entre le stream et l'API LNH">Sync —</div>
+
+      <button id="btn-theatre" class="tool-btn" title="Mode théâtre (T)">Théâtre</button>
+      <button id="btn-fullscreen" class="tool-btn" title="Plein écran (F)">Plein écran</button>
+      <button id="btn-calibrate" class="tool-btn" title="Calibrer le tableau de score (C)">Calibrer</button>
+      <button id="btn-settings" class="tool-btn" title="Réglages (S)">Réglages</button>
+    </header>
+
+    <main id="stage">
+      <webview id="stream" partition="persist:stream" src="about:blank"></webview>
+      <div id="hotzone" title="Afficher la barre"></div>
+
+      <div id="overlay" aria-live="polite">
+        <div id="fx-tension"></div>
+        <div id="banner" class="banner"></div>
+        <div id="player-card" class="player-card"></div>
+        <div id="adshow" class="adshow"></div>
+        <div id="celebration" class="celebration"><canvas id="confetti"></canvas></div>
+        <div id="toasts"></div>
+        <pre id="hud" class="hud"></pre>
+      </div>
+    </main>
+
+    <aside id="settings" class="drawer" hidden></aside>
+    <div id="calibration" class="modal" hidden></div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "habs-regie",
+  "productName": "Habs Régie",
+  "version": "0.1.0",
+  "description": "Surcouche et régie pour regarder les matchs des Canadiens de Montréal sur OnHockey.tv",
+  "private": true,
+  "type": "module",
+  "main": "src/main/main.js",
+  "author": "charlatan92",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "start:demo": "electron . --demo",
+    "test": "node --test test/*.test.js",
+    "dist:win": "electron-builder --win nsis portable"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.18.2",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "playwright-core": "^1.63.0"
+  }
+}
