@@ -12,7 +12,8 @@
     "start": "electron .",
     "start:demo": "electron . --demo",
     "test": "node --test test/*.test.js",
-    "dist:win": "electron-builder --win nsis portable"
+    "test:e2e": "node test/e2e-demo.mjs && node test/e2e-ui.mjs",
+    "dist:win": "electron-builder --win nsis portable --publish never"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.18.2",
@@ -21,6 +22,46 @@
   },
   "devDependencies": {
     "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "playwright-core": "^1.63.0"
+  },
+  "build": {
+    "appId": "ca.habs.regie",
+    "productName": "Habs Régie",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "!**/*.map",
+      "!node_modules/@tesseract.js-data/eng/4.0.0/**",
+      "!node_modules/tesseract.js-core/*.wasm",
+      "!node_modules/tesseract.js-core/tesseract-core.js",
+      "!node_modules/tesseract.js-core/tesseract-core-simd.js",
+      "!node_modules/tesseract.js-core/tesseract-core-relaxedsimd.js",
+      "!node_modules/tesseract.js-core/tesseract-core-lstm.js",
+      "!node_modules/tesseract.js-core/tesseract-core-simd-lstm.js",
+      "!node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.js",
+      "!node_modules/tesseract.js-core/tesseract-core.wasm.js",
+      "!node_modules/tesseract.js-core/tesseract-core-simd.wasm.js",
+      "!node_modules/tesseract.js-core/tesseract-core-relaxedsimd.wasm.js"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Habs-Regie-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Habs-Regie-Portable-${version}.${ext}"
+    }
   }
 }

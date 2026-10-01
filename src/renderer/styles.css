@@ -318,11 +318,17 @@ body.overlays-hidden #overlay > :not(#toasts) {
 
 .pc-num {
   position: absolute;
-  right: 26px;
-  top: -8px;
-  font: 800 74px/1 var(--font-display);
+  right: 22px;
+  bottom: -10px;
+  font: 800 78px/1 var(--font-display);
   color: var(--team);
-  opacity: 0.35;
+  opacity: 0.28;
+  z-index: 0;
+}
+
+.pc-body > :not(.pc-num) {
+  position: relative;
+  z-index: 1;
 }
 
 .pc-first {
@@ -374,7 +380,7 @@ body.overlays-hidden #overlay > :not(#toasts) {
 .pc-stats b {
   color: #fff;
   font-size: 15px;
-  margin-right: 2px;
+  margin-right: 3px;
 }
 
 /* ---------------------------------------------------------------- Bandeau (but adverse, pénalité) */

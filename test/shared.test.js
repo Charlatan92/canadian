@@ -125,6 +125,9 @@ test('sync : lecture OCR, estimation du retard et repli sur l\'API', () => {
   assert.ok(Math.abs(n.gt - (1200 + 482.5)) < 0.01);
   assert.ok(Math.abs(c.delayEst - 40) < 1.5, `retard estimé ${c.delayEst}`);
 
+  // Plus de lecture (arrêt de jeu, reprise vidéo) : on n'extrapole pas plus de 2 s
+  assert.ok(Math.abs(c.now(T0 + 47_000).gt - (1200 + 484)) < 0.01);
+
   // Lecture aberrante isolée : rejetée
   assert.equal(c.ocrSample(300, T0 + 43_000), false);
 
@@ -329,6 +332,17 @@ test('régie : pas de double célébration entre l\'API et le score à l\'écran
   assert.deepEqual(late.fromScreen(2, 1, 0), [], 'app lancée à 2-1 : rien à célébrer');
 });
 
+test('régie : la mise en jeu après un but attend la reprise du jeu', () => {
+  const g = normalizeGame(pbp, 'MTL');
+  const sch = new EventScheduler();
+  sch.ingest(g.plays);
+  sch.release(1150);
+  // Fin de la 1re et mise en jeu de la 2e au même temps de jeu (1200)
+  assert.deepEqual(sch.release(1200).fresh.map((p) => p.id), [9]);
+  assert.deepEqual(sch.release(1201).fresh.map((p) => p.id), []);
+  assert.deepEqual(sch.release(1202).fresh.map((p) => p.id), [10]);
+});
+
 test('régie : but déjà montré puis retiré par la LNH', () => {
   const g = normalizeGame(pbp, 'MTL');
   const sch = new EventScheduler();
@@ -410,6 +424,14 @@ test('vision : détection automatique du tableau de score', () => {
   const [x, y, bw, bh] = box;
   assert.ok(x < 0.1 && y > 0.75 && y < 0.85, `position ${box}`);
   assert.ok(bw > 0.3 && bw < 0.42 && bh < 0.2, `taille ${box}`);
+  // Une fine ligne fixe collée au tableau ne doit pas étirer la boîte
+  const withLine = frames.map((f) => {
+    const g = f.slice();
+    for (let y = 10; y < Math.floor(h * 0.92); y++) g[y * w + 20] = 250;
+    return g;
+  });
+  const box2 = autoDetectScorebug(withLine, w, h);
+  assert.ok(box2 && box2[1] > 0.75, `ligne ignorée ${box2}`);
   const still = Array.from({ length: 20 }, () => syntheticFrame(w, h, 1, true));
   assert.equal(autoDetectScorebug(still, w, h), null, 'caméra fixe : impossible de trancher');
 });

@@ -1,6 +1,12 @@
 // Cœur de la Régie, sans DOM : quelles actions de l'API peut-on montrer maintenant,
 // et quels buts faut-il célébrer (sans doublon entre l'API et la lecture du score à l'écran).
 
+// Une mise en jeu a lieu horloge arrêtée, au même temps de jeu que l'arrêt qui la précède
+// (but, dégagement...) : on attend que l'horloge reparte, sinon elle sortirait avant la reprise.
+function reached(play, streamGt) {
+  return play.type === 'faceoff' ? play.gt < streamGt - 1.5 : play.gt <= streamGt + 0.25;
+}
+
 export class EventScheduler {
   constructor() {
     this.reset();
@@ -40,7 +46,7 @@ export class EventScheduler {
     const res = { fresh: [], late: [], history: [] };
     if (streamGt == null || !this.ingested) return res;
     let cut = 0;
-    while (cut < this.pending.length && this.pending[cut].gt <= streamGt + 0.25) cut++;
+    while (cut < this.pending.length && reached(this.pending[cut], streamGt)) cut++;
     if (!cut) {
       this.primed = true;
       return res;

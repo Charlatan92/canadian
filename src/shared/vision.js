@@ -153,23 +153,15 @@ export function autoDetectScorebug(frames, w, h) {
   const comps = components(grown, w, h);
   let best = null;
   for (const c of comps) {
-    const bw = c.x1 - c.x0 + 1;
-    const bh = c.y1 - c.y0 + 1;
+    // Boîte serrée sur les pixels d'origine, en ne gardant que les lignes et colonnes denses :
+    // une fine ligne fixe collée au tableau (bande, logo) ne doit pas étirer la boîte.
+    const t = denseBox(mask, w, c);
+    if (!t) continue;
+    const bw = t.x1 - t.x0 + 1;
+    const bh = t.y1 - t.y0 + 1;
     const areaFrac = (bw * bh) / N;
     if (areaFrac < 0.004 || areaFrac > 0.2 || bw < bh * 1.5) continue;
-    // Boîte serrée sur les pixels d'origine (la dilatation ne sert qu'à regrouper les morceaux)
-    const t = { x0: w, y0: h, x1: -1, y1: -1, hits: 0 };
-    for (let y = c.y0; y <= c.y1; y++) {
-      for (let x = c.x0; x <= c.x1; x++) {
-        if (!mask[y * w + x]) continue;
-        t.hits++;
-        if (x < t.x0) t.x0 = x;
-        if (x > t.x1) t.x1 = x;
-        if (y < t.y0) t.y0 = y;
-        if (y > t.y1) t.y1 = y;
-      }
-    }
-    if (t.hits && (!best || t.hits > best.hits)) best = t;
+    if (!best || t.hits > best.hits) best = t;
   }
   if (!best) return null;
   const x0 = Math.max(0, best.x0 - 1);
@@ -177,6 +169,34 @@ export function autoDetectScorebug(frames, w, h) {
   const x1 = Math.min(w - 1, best.x1 + 1);
   const y1 = Math.min(h - 1, best.y1 + 1);
   return [x0 / w, y0 / h, (x1 - x0 + 1) / w, (y1 - y0 + 1) / h];
+}
+
+function denseRange(counts, ratio = 0.25) {
+  let peak = 0;
+  for (let i = 1; i < counts.length; i++) if (counts[i] > counts[peak]) peak = i;
+  if (!counts[peak]) return null;
+  const min = counts[peak] * ratio;
+  let a = peak;
+  let b = peak;
+  while (a > 0 && (counts[a - 1] >= min || (a > 1 && counts[a - 2] >= min))) a--;
+  while (b < counts.length - 1 && (counts[b + 1] >= min || (b < counts.length - 2 && counts[b + 2] >= min))) b++;
+  return [a, b];
+}
+
+function denseBox(mask, w, c) {
+  const rows = new Array(c.y1 - c.y0 + 1).fill(0);
+  for (let y = c.y0; y <= c.y1; y++) for (let x = c.x0; x <= c.x1; x++) rows[y - c.y0] += mask[y * w + x];
+  const ry = denseRange(rows);
+  if (!ry) return null;
+  const y0 = c.y0 + ry[0];
+  const y1 = c.y0 + ry[1];
+  const cols = new Array(c.x1 - c.x0 + 1).fill(0);
+  for (let y = y0; y <= y1; y++) for (let x = c.x0; x <= c.x1; x++) cols[x - c.x0] += mask[y * w + x];
+  const rx = denseRange(cols, 0.15);
+  if (!rx) return null;
+  let hits = 0;
+  for (let y = y0; y <= y1; y++) for (let x = c.x0 + rx[0]; x <= c.x0 + rx[1]; x++) hits += mask[y * w + x];
+  return { x0: c.x0 + rx[0], x1: c.x0 + rx[1], y0, y1, hits };
 }
 
 function dilate(m, w, h) {

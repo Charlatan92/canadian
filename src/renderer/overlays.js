@@ -118,7 +118,7 @@ export class Celebration {
     const lines = [];
     if (d.scoringPlayerTotal) lines.push(`Son ${ordinalFr(d.scoringPlayerTotal)} but de la saison`);
     lines.push(assists.length ? `Aides : ${assists.join(', ')}` : player ? 'Sans aide' : '');
-    if (play) lines.push(`${periodName(play.period, game?.gameType)} période · ${formatClock(play.tip)}`);
+    if (play) lines.push(`${periodName(play.period, game?.gameType)}${play.period <= 3 ? ' période' : ''} · ${formatClock(play.tip)}`);
     const scorer = player
       ? `<div class="cel-scorer">
            <div class="cel-photo">${photoHtml(player.headshot, initials(player))}</div>

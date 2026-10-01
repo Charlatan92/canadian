@@ -168,7 +168,9 @@ export class StreamClock {
   now(t) {
     const a = this.anchor;
     if (this.mode === 'auto' && a && t - a.t <= OCR_FRESH_MS) {
-      const gt = a.gt + (a.running ? Math.min((t - a.t) / 1000, OCR_FRESH_MS / 1000) : 0);
+      // Pas plus de 2 s d'extrapolation : si l'horloge s'arrête (but, sifflet), on ne doit pas
+      // "avancer" le match au-delà de ce que le stream montre
+      const gt = a.gt + (a.running ? Math.min((t - a.t) / 1000, 2) : 0);
       return this.#result(gt, 'ocr', this.delayEst);
     }
     const useEst = this.mode === 'auto' && this.delayEst != null;
