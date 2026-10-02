@@ -29,7 +29,7 @@ export class Diagnostics {
     const d = this.director;
     return {
       quand: new Date().toISOString(),
-      app: await window.habs.diagnostics(),
+      app: await window.rondelle.diagnostics(),
       stream: {
         courant: s.current,
         etat: s.health,

@@ -93,7 +93,7 @@ export class StreamManager extends Emitter {
       /* page pas prête */
     }
     if (!html && !this.demo) {
-      const res = await window.habs.fetchPage(cfg.stream.homeUrl);
+      const res = await window.rondelle.fetchPage(cfg.stream.homeUrl);
       if (res?.ok) {
         html = res.html;
         base = res.url;
@@ -125,7 +125,7 @@ export class StreamManager extends Emitter {
     // Tous les liens de la page OnHockey (y compris les autres matchs) mènent à des hébergeurs de
     // streams : on les autorise, pour que cliquer n'importe quel stream fonctionne.
     const pageUrls = pageLinks.map((l) => l.href).filter((u) => /^https?:/i.test(u));
-    await window.habs.allowNavigation({
+    await window.rondelle.allowNavigation({
       hosts: [...this.streams.map((s) => s.host), ...pageUrls.map(hostOf)],
       streams: [...this.streams.map((s) => s.url), ...pageUrls],
     });
@@ -220,7 +220,7 @@ export class StreamManager extends Emitter {
   }
 
   #onNavigate(url) {
-    if (!url || url === 'about:blank' || url.startsWith('habs:')) return;
+    if (!url || url === 'about:blank' || url.startsWith('rondelle:')) return;
     // Navigation lancée par l'app (éventuellement redirigée) : rien à faire
     if (Date.now() - this.navigatingAt < 15_000) return;
     if (this.isHome(url)) {

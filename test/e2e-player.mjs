@@ -25,13 +25,13 @@ const port = server.address().port;
 // "localhost" et "127.0.0.1" sont deux sites différents pour la politique de navigation
 const LIST = `http://localhost:${port}/list.html`;
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'habs-e2e-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rondelle-e2e-'));
 fs.writeFileSync(
   path.join(userData, 'config.json'),
-  JSON.stringify({ team: 'BOS', stream: { homeUrl: LIST, adblock: false, autoStart: false } }),
+  JSON.stringify({ team: 'BOS', onboarded: true, stream: { homeUrl: LIST, adblock: false, autoStart: false } }),
 );
 
-const app = await electron.launch({ args: ['.', '--no-sandbox'], env: { ...process.env, HABS_USER_DATA: userData } });
+const app = await electron.launch({ args: ['.', '--no-sandbox'], env: { ...process.env, RONDELLE_USER_DATA: userData } });
 const win = await app.firstWindow();
 const errors = [];
 win.on('pageerror', (e) => errors.push(String(e)));
@@ -67,7 +67,7 @@ async function waitFor(fn, ms = 8000) {
 }
 
 async function backToList() {
-  await win.evaluate(() => window.__habs.streams.goHome());
+  await win.evaluate(() => window.__rondelle.streams.goHome());
   await waitFor(async () => (await guestUrl()).startsWith(LIST));
   await new Promise((r) => setTimeout(r, 1200)); // l'app relit la page et autorise ses liens
 }
@@ -89,7 +89,7 @@ await new Promise((r) => setTimeout(r, 400));
 if (!(await guestEval('window.playing === true'))) await trustedClick('#player');
 checks['le lecteur démarre'] = await waitFor(() => guestEval('window.playing === true'), 5000);
 checks['vidéo vue par la régie'] = await waitFor(
-  () => win.evaluate(() => window.__habs.streams.playedOnce === true),
+  () => win.evaluate(() => window.__rondelle.streams.playedOnce === true),
   8000,
 );
 
@@ -104,11 +104,11 @@ await trustedClick('#js');
 checks['lien window.open'] = await waitFor(async () => (await guestUrl()).includes('player.html?js=1'));
 
 // 6. Redirection publicitaire automatique : bloquée
-await win.evaluate((u) => window.__habs.bridge.wv.loadURL(u), `${LIST}#redirect`);
+await win.evaluate((u) => window.__rondelle.bridge.wv.loadURL(u), `${LIST}#redirect`);
 await new Promise((r) => setTimeout(r, 2500));
 checks['redirection pub bloquée'] = (await guestUrl()).startsWith(LIST);
 
-const diag = await win.evaluate(() => window.__habs.diagnostics.collect());
+const diag = await win.evaluate(() => window.__rondelle.diagnostics.collect());
 checks['diagnostic disponible'] = Array.isArray(diag.app?.events) && diag.app.events.some((e) => e.type === 'nav-blocked');
 checks['aucune erreur'] = errors.length === 0;
 

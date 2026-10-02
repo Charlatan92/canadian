@@ -2,7 +2,7 @@
 // (test/fixtures/fake-whisper, qui "entend" toujours « Caufield to Suzuki ») servi à la place de
 // Hugging Face : son du stream -> 16 kHz -> worker transformers.js/ONNX -> noms -> carte joueur.
 // Usage : xvfb-run -a node test/e2e-voice.mjs [dossier-captures]
-// HABS_E2E_EXE=<exécutable empaqueté> : teste l'app empaquetée (fichiers lus dans app.asar)
+// RONDELLE_E2E_EXE=<exécutable empaqueté> : teste l'app empaquetée (fichiers lus dans app.asar)
 import { _electron as electron } from 'playwright-core';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -24,11 +24,11 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'habs-voice-'));
-const exe = process.env.HABS_E2E_EXE;
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rondelle-voice-'));
+const exe = process.env.RONDELLE_E2E_EXE;
 const app = await electron.launch({
   ...(exe ? { executablePath: exe, args: ['--demo', '--no-sandbox'] } : { args: ['.', '--demo', '--no-sandbox'] }),
-  env: { ...process.env, HABS_USER_DATA: userData, HABS_HF_BASE: `http://127.0.0.1:${server.address().port}/` },
+  env: { ...process.env, RONDELLE_USER_DATA: userData, RONDELLE_HF_BASE: `http://127.0.0.1:${server.address().port}/` },
 });
 const win = await app.firstWindow();
 const errors = [];
@@ -36,7 +36,7 @@ win.on('pageerror', (e) => errors.push(String(e)));
 win.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 const checks = {};
 
-const status = () => win.evaluate(() => ({ ...window.__habs?.voice?.status }));
+const status = () => win.evaluate(() => ({ ...window.__rondelle?.voice?.status }));
 const waitFor = async (fn, ms) => {
   const end = Date.now() + ms;
   while (Date.now() < end) {

@@ -18,7 +18,7 @@ export class GoalHorn {
     for (const which of ['horn', 'song']) {
       this.buffers[which] = null;
       try {
-        const data = await window.habs.readAudio(which);
+        const data = await window.rondelle.readAudio(which);
         if (data) this.buffers[which] = await this.#ctx().decodeAudioData(data);
       } catch (err) {
         console.warn(`[klaxon] fichier ${which} illisible`, err);

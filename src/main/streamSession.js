@@ -13,7 +13,7 @@ export const STREAM_PARTITION = 'persist:stream';
 // User-Agent de Chrome standard : sans "Electron/x" (refusé par certains sites) ni le nom de
 // l'app (ses accents sont invalides dans un en-tête HTTP)
 export function cleanUserAgent(ua) {
-  return ua.replace(/\s(Electron|habs-regie|Habs\s?R\S*)\/\S+/g, '').replace(/[^\x20-\x7e]/g, '');
+  return ua.replace(/\s(Electron|rondelle|Rondelle|habs-regie|Habs\s?R\S*)\/\S+/g, '').replace(/[^\x20-\x7e]/g, '');
 }
 
 // Journal des derniers événements (pop-ups, redirections...) pour le rapport de diagnostic
@@ -210,7 +210,7 @@ export function guardGuest(guest, { policy, notify, log }) {
     now: Date.now(),
   });
 
-  guest.ipc.on('habs:intent', (_e, msg) => {
+  guest.ipc.on('rdl:intent', (_e, msg) => {
     if (typeof msg?.url !== 'string' || !msg.url) return;
     intents.push({ url: msg.url, at: Date.now() });
     if (intents.length > 20) intents.shift();
@@ -235,7 +235,7 @@ export function guardGuest(guest, { policy, notify, log }) {
   };
 
   // window.open() intercepté dans la page par l'agent (il a déjà rendu une fenêtre leurre)
-  guest.ipc.on('habs:popup', (_e, msg) => {
+  guest.ipc.on('rdl:popup', (_e, msg) => {
     if (typeof msg?.url === 'string' && msg.url) decidePopup(msg.url, !!msg.activated, 'window.open');
   });
 

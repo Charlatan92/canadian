@@ -1,5 +1,7 @@
+import { onColor } from '../shared/color.js';
 import { EVENT_LABELS, penaltyLabel, periodName, formatClock, teamColor } from '../shared/nhl.js';
-import { $, esc, initials, ordinalFr, photoHtml } from './util.js';
+import { teamTheme } from '../shared/theme.js';
+import { $, esc, icon, initials, ordinalFr, photoHtml, teamLogoHtml } from './util.js';
 
 const POS_FR = { C: 'Centre', L: 'Ailier G.', R: 'Ailier D.', D: 'Défenseur', G: 'Gardien' };
 
@@ -34,7 +36,9 @@ export class PlayerCard {
     this.current = player.id;
     const action = label ?? (play?.type === 'penalty' ? penaltyLabel(play.details?.descKey) : EVENT_LABELS[play?.type] ?? '');
     this.el.className = `player-card style-${style}`;
-    this.el.style.setProperty('--team', teamColor(player.teamAbbrev));
+    const color = teamColor(player.teamAbbrev);
+    this.el.style.setProperty('--team', color);
+    this.el.style.setProperty('--team-on', onColor(color));
     if (style === 'name') this.el.innerHTML = nameplateHtml(player, action);
     else if (style === 'emoji') this.el.innerHTML = emojiHtml(player, action, emojiUrl);
     else this.el.innerHTML = cardHtml(player, action, stats);
@@ -106,6 +110,7 @@ export class Banner {
 
   show({ tag, title, sub = '', color = '#5b8def', durationSec = 7 }) {
     this.el.style.setProperty('--team', color);
+    this.el.style.setProperty('--team-on', onColor(color));
     this.el.innerHTML = `<div class="bn-tag">${esc(tag)}</div><div class="bn-text"><div class="bn-title">${esc(title)}</div><div class="bn-sub">${esc(sub)}</div></div>`;
     this.el.classList.add('show');
     clearTimeout(this.timer);
@@ -142,7 +147,7 @@ export class Celebration {
     this.active = false;
   }
 
-  start({ player, play, game, durationSec = 9, confetti = true, emojiUrl = null }) {
+  start({ player, play, game, durationSec = 9, confetti = true, emojiUrl = null, logos = true }) {
     this.stop();
     this.active = true;
     const d = play?.details ?? {};
@@ -160,11 +165,11 @@ export class Celebration {
            <div><div class="cel-name">${esc(player.first)} ${esc(player.last)} <span style="opacity:.7">#${esc(player.number ?? '')}</span></div>
            ${lines.filter(Boolean).map((l) => `<div class="cel-line">${esc(l)}</div>`).join('')}</div>
          </div>`
-      : `<div class="cel-scorer"><div><div class="cel-name">But des ${esc(game?.team?.name ?? 'Canadiens')} !</div><div class="cel-line">${game?.team?.abbrev === 'MTL' || !game ? 'Go Habs Go !' : 'Quel but !'}</div></div></div>`;
+      : `<div class="cel-scorer">${game?.team?.abbrev ? teamLogoHtml(game.team.abbrev, { cls: 'cel-logo', logos }) : ''}<div><div class="cel-name">But des ${esc(game?.team?.name ?? 'vôtres')} !</div><div class="cel-line">${esc(chant(game?.team?.abbrev, game?.team?.name))}</div></div></div>`;
     this.el.querySelectorAll('.cel-flash, .cel-word, .cel-scorer').forEach((n) => n.remove());
     this.el.insertAdjacentHTML('beforeend', `<div class="cel-flash"></div><div class="cel-word">BUT !</div>${scorer}`);
     this.el.classList.add('show');
-    if (confetti) this.#confetti(durationSec);
+    if (confetti) this.#confetti(durationSec, teamTheme(game?.team?.abbrev).confetti);
     this.timer = setTimeout(() => this.stop(), durationSec * 1000);
   }
 
@@ -178,14 +183,13 @@ export class Celebration {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  // Confettis bleu-blanc-rouge, ~180 particules, arrêt automatique
-  #confetti(durationSec) {
+  // Confettis aux couleurs de l'équipe, ~180 particules, arrêt automatique
+  #confetti(durationSec, colors) {
     const c = this.canvas;
     const dpr = Math.min(2, devicePixelRatio || 1);
     c.width = c.clientWidth * dpr;
     c.height = c.clientHeight * dpr;
     const ctx = c.getContext('2d');
-    const colors = ['#af1e2d', '#ffffff', '#192168', '#e5484d', '#dfe6ff'];
     const parts = Array.from({ length: 180 }, () => ({
       x: Math.random() * c.width,
       y: -Math.random() * c.height * 0.6,
@@ -226,31 +230,60 @@ export class Celebration {
   }
 }
 
-// ---------------------------------------------------------------- Toasts
+// Cri de ralliement des partisans (sinon un « Allez les … ! » générique)
+const CHANTS = { MTL: 'Go Habs Go !', TOR: 'Go Leafs Go !', OTT: 'Go Sens Go !', BOS: "Let's go Bruins !", EDM: "Let's go Oilers !", VAN: 'Go Canucks Go !', WPG: 'Go Jets Go !', CGY: 'Go Flames Go !' };
+function chant(abbrev, name) {
+  return CHANTS[abbrev] ?? (name ? `Allez les ${name} !` : 'Quel but !');
+}
+
+// ---------------------------------------------------------------- Notifications
+
+const KIND_ICON = { '': 'info', ok: 'circle-check', warn: 'triangle-alert', bad: 'circle-x' };
 
 export class Toasts {
   constructor(el) {
     this.el = el;
   }
 
-  show(text, { kind = '', ms = 4500, actions = [] } = {}) {
+  // kind : '' | 'ok' | 'warn' | 'bad' ; un même message n'est jamais affiché deux fois
+  show(text, { kind = '', ms = 4500, actions = [], key = null } = {}) {
+    if (!this.el) return null;
+    const id = key ?? text;
+    for (const old of this.el.children) if (old.dataset.key === id) old.remove();
     const t = document.createElement('div');
     t.className = `toast ${kind}`;
-    const span = document.createElement('span');
-    span.textContent = text;
-    t.append(span);
-    for (const a of actions) {
-      const b = document.createElement('button');
-      b.textContent = a.label;
-      b.addEventListener('click', () => {
-        a.fn();
-        t.remove();
+    t.dataset.key = id;
+    t.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
+    t.innerHTML = `${icon(KIND_ICON[kind] ?? 'info')}<div class="toast-msg"></div>
+      <button class="icon-btn icon-btn-sm toast-close" aria-label="Fermer">${icon('x', 'ic-sm')}</button>
+      <i class="toast-timer" style="animation-duration:${Math.max(1000, ms)}ms"></i>`;
+    t.querySelector('.toast-msg').textContent = text;
+    const close = () => {
+      if (t.classList.contains('leaving')) return;
+      t.classList.add('leaving');
+      setTimeout(() => t.remove(), 220);
+    };
+    if (actions.length) {
+      const row = document.createElement('div');
+      row.className = 'toast-actions';
+      actions.forEach((a, i) => {
+        const b = document.createElement('button');
+        b.className = `btn btn-sm ${i === 0 ? 'btn-primary' : ''}`;
+        b.textContent = a.label;
+        b.addEventListener('click', () => {
+          a.fn();
+          close();
+        });
+        row.append(b);
       });
-      t.append(b);
+      t.append(row);
     }
+    t.querySelector('.toast-close').addEventListener('click', close);
+    // Le minuteur s'arrête au survol : la notification reste tant qu'on la lit
+    t.querySelector('.toast-timer').addEventListener('animationend', close);
     this.el.append(t);
     while (this.el.children.length > 4) this.el.firstElementChild.remove();
-    setTimeout(() => t.remove(), ms);
+    return t;
   }
 }
 

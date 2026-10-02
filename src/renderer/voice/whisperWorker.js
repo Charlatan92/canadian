@@ -1,6 +1,6 @@
 // Worker de reconnaissance vocale : Whisper (transformers.js + ONNX Runtime), sur la carte graphique
 // (WebGPU) si possible, sinon sur le processeur (WebAssembly). Tout tourne sur l'ordinateur : le
-// modèle est téléchargé une seule fois via l'app (proxy habs://app/hf/ avec cache disque).
+// modèle est téléchargé une seule fois via l'app (proxy rondelle://app/hf/ avec cache disque).
 import { env, pipeline } from '/vendor/transformers/transformers.min.js';
 
 const here = self.location.href;

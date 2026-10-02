@@ -1,8 +1,8 @@
 {
-  "name": "habs-regie",
-  "productName": "Habs Régie",
-  "version": "0.1.0",
-  "description": "Surcouche et régie pour regarder les matchs des Canadiens de Montréal sur OnHockey.tv",
+  "name": "rondelle",
+  "productName": "Rondelle",
+  "version": "1.0.0",
+  "description": "Rondelle : la régie télé de vos matchs de hockey (surcouche, cartes joueurs, célébrations, stats)",
   "private": true,
   "type": "module",
   "main": "src/main/main.js",
@@ -13,8 +13,9 @@
     "start:demo": "electron . --demo",
     "postinstall": "node scripts/vendor.mjs",
     "test": "node --test test/*.test.js",
-    "test:e2e": "node test/e2e-demo.mjs && node test/e2e-ui.mjs && node test/e2e-player.mjs && node test/e2e-errors.mjs && node test/e2e-heads.mjs && node test/e2e-voice.mjs",
-    "dist:win": "node scripts/vendor.mjs && electron-builder --win nsis portable --publish never"
+    "test:e2e": "node test/e2e-demo.mjs && node test/e2e-ui.mjs && node test/e2e-overlay.mjs && node test/e2e-player.mjs && node test/e2e-errors.mjs && node test/e2e-heads.mjs && node test/e2e-voice.mjs",
+    "dist:win": "node scripts/vendor.mjs && electron-builder --win nsis portable --publish never",
+    "start:overlay-demo": "electron . --demo --overlay"
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.18.2",
@@ -22,14 +23,17 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/barlow-condensed": "^5.3.0",
     "@huggingface/transformers": "4.3.0",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
+    "lucide-static": "^1.49.0",
     "playwright-core": "^1.63.0"
   },
   "build": {
-    "appId": "ca.habs.regie",
-    "productName": "Habs Régie",
+    "appId": "ca.rondelle.app",
+    "productName": "Rondelle",
     "directories": {
       "output": "dist"
     },
@@ -61,10 +65,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "Habs-Regie-Setup-${version}.${ext}"
+      "artifactName": "Rondelle-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "Habs-Regie-Portable-${version}.${ext}"
+      "artifactName": "Rondelle-Portable-${version}.${ext}"
     }
   },
   "overrides": {

@@ -20,8 +20,8 @@ const send = (msg) => {
 // ---------------------------------------------------------------------------
 
 const MAIN_WORLD_PATCH = `(() => {
-  if (window.__habsPatched) return;
-  try { Object.defineProperty(window, '__habsPatched', { value: true }); } catch (e) {}
+  if (window.__rondellePatched) return;
+  try { Object.defineProperty(window, '__rdlPatched', { value: true }); } catch (e) {}
   const emit = (name, detail) => document.dispatchEvent(new CustomEvent(name, { detail }));
   // Remplace une fonction native par un Proxy : la page voit toujours "[native code]"
   const hook = (obj, name, impl) => {
@@ -31,8 +31,8 @@ const MAIN_WORLD_PATCH = `(() => {
       Object.defineProperty(obj, name, { value, configurable: true, writable: true });
     } catch (e) {}
   };
-  const enter = function () { emit('__habs_fs', 'enter'); return Promise.resolve(); };
-  const exit = function () { emit('__habs_fs', 'exit'); return Promise.resolve(); };
+  const enter = function () { emit('__rdl_fs', 'enter'); return Promise.resolve(); };
+  const exit = function () { emit('__rdl_fs', 'exit'); return Promise.resolve(); };
   for (const n of ['requestFullscreen', 'webkitRequestFullscreen', 'webkitRequestFullScreen', 'mozRequestFullScreen']) hook(Element.prototype, n, enter);
   hook(HTMLVideoElement.prototype, 'webkitEnterFullscreen', enter);
   hook(HTMLVideoElement.prototype, 'webkitEnterFullScreen', enter);
@@ -53,7 +53,7 @@ const MAIN_WORLD_PATCH = `(() => {
   hook(window, 'open', function (url) {
     let abs = '';
     try { abs = url ? new URL(String(url), location.href).href : ''; } catch (e) {}
-    emit('__habs_popup', abs);
+    emit('__rdl_popup', abs);
     return decoy();
   });
   // Vidéo protégée (DRM) : on le signale, l'interface proposera le mode surcouche
@@ -61,7 +61,7 @@ const MAIN_WORLD_PATCH = `(() => {
     const rmksa = navigator.requestMediaKeySystemAccess;
     hook(Navigator.prototype, 'requestMediaKeySystemAccess', function (keySystem, configs) {
       const p = rmksa.call(this, keySystem, configs);
-      p.then(() => emit('__habs_drm', { keySystem: String(keySystem), supported: true }), () => emit('__habs_drm', { keySystem: String(keySystem), supported: false }));
+      p.then(() => emit('__rdl_drm', { keySystem: String(keySystem), supported: true }), () => emit('__rdl_drm', { keySystem: String(keySystem), supported: false }));
       return p;
     });
   }
@@ -75,8 +75,8 @@ try {
 } catch {
   /* ignore */
 }
-document.addEventListener('__habs_fs', (e) => send({ type: 'fullscreen', action: e.detail }));
-document.addEventListener('__habs_drm', (e) => send({ type: 'drm', url: location.href, ...(e.detail || {}) }));
+document.addEventListener('__rdl_fs', (e) => send({ type: 'fullscreen', action: e.detail }));
+document.addEventListener('__rdl_drm', (e) => send({ type: 'drm', url: location.href, ...(e.detail || {}) }));
 
 // Le process principal autorise une navigation ou une nouvelle fenêtre seulement si elle vient
 // d'un vrai clic de l'utilisateur sur un lien : on lui signale ces clics (pas ceux des scripts).
@@ -86,7 +86,7 @@ function onTrustedClick(e) {
   const a = path.find((n) => n && n.tagName === 'A' && n.href) || (e.target && e.target.closest && e.target.closest('a[href]'));
   if (!a || !a.href || /^javascript:/i.test(a.href)) return;
   try {
-    ipcRenderer.send('habs:intent', { url: a.href });
+    ipcRenderer.send('rdl:intent', { url: a.href });
   } catch {
     /* ignore */
   }
@@ -94,10 +94,10 @@ function onTrustedClick(e) {
 window.addEventListener('click', onTrustedClick, true);
 window.addEventListener('auxclick', onTrustedClick, true);
 
-document.addEventListener('__habs_popup', (e) => {
+document.addEventListener('__rdl_popup', (e) => {
   const activated = !!(navigator.userActivation && navigator.userActivation.isActive);
   try {
-    ipcRenderer.send('habs:popup', { url: e.detail, activated });
+    ipcRenderer.send('rdl:popup', { url: e.detail, activated });
   } catch {
     /* ignore */
   }
@@ -659,9 +659,9 @@ const theatre = {
   clear() {
     this.style?.remove();
     this.style = null;
-    for (const el of document.querySelectorAll('[data-habs-theatre],[data-habs-chain]')) {
-      el.removeAttribute('data-habs-theatre');
-      el.removeAttribute('data-habs-chain');
+    for (const el of document.querySelectorAll('[data-rdl-theatre],[data-rdl-chain]')) {
+      el.removeAttribute('data-rdl-theatre');
+      el.removeAttribute('data-rdl-chain');
     }
     this.target = null;
   },
@@ -686,17 +686,17 @@ const theatre = {
     if (!target || target === this.target) return;
     this.clear();
     this.target = target;
-    target.setAttribute('data-habs-theatre', '1');
+    target.setAttribute('data-rdl-theatre', '1');
     for (let a = target.parentElement; a && a !== document.documentElement; a = a.parentElement) {
-      a.setAttribute('data-habs-chain', '1');
+      a.setAttribute('data-rdl-chain', '1');
     }
     this.style = document.createElement('style');
     this.style.textContent = `
-      [data-habs-theatre]{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;
+      [data-rdl-theatre]{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;
         max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;margin:0!important;
         border:0!important;z-index:2147483646!important;background:#000!important;transform:none!important;visibility:visible!important;}
-      [data-habs-theatre] video, video[data-habs-theatre]{object-fit:contain!important;width:100%!important;height:100%!important;}
-      [data-habs-chain]{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;
+      [data-rdl-theatre] video, video[data-rdl-theatre]{object-fit:contain!important;width:100%!important;height:100%!important;}
+      [data-rdl-chain]{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;
         will-change:auto!important;visibility:visible!important;}
       html,body{overflow:hidden!important;}`;
     (document.head || document.documentElement).appendChild(this.style);
@@ -717,7 +717,7 @@ const guard = {
     if (pr.width * pr.height < 160 * 90) return;
     for (const el of document.body.querySelectorAll('body > *, body > * > *')) {
       if (el === player || el.contains(player) || player.contains(el)) continue;
-      if (el.hasAttribute('data-habs-hidden') || el.matches('video, iframe, [data-habs-theatre], [data-habs-chain]')) continue;
+      if (el.hasAttribute('data-rdl-hidden') || el.matches('video, iframe, [data-rdl-theatre], [data-rdl-chain]')) continue;
       if (el.querySelector('video, iframe')) continue;
       const cs = getComputedStyle(el);
       if (cs.position !== 'fixed' && cs.position !== 'absolute') continue;
@@ -733,7 +733,7 @@ const guard = {
         parseFloat(cs.opacity) < 0.15 ||
         (isTransparent(cs.backgroundColor) && cs.backgroundImage === 'none' && !el.textContent.trim() && !el.querySelector('img, svg, canvas, button, picture'));
       if (!invisible) continue;
-      el.setAttribute('data-habs-hidden', '1');
+      el.setAttribute('data-rdl-hidden', '1');
       el.style.setProperty('display', 'none', 'important');
       send({ type: 'overlay-removed', tag: el.tagName, id: el.id || '' });
     }

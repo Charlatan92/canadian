@@ -1,6 +1,6 @@
 import { parseClockText, parseScoreText } from '../shared/ocr.js';
 import { autoDetectScorebug, rgbaToGray } from '../shared/vision.js';
-import { esc } from './util.js';
+import { esc, icon } from './util.js';
 
 const STEPS = [
   { key: 'scorebug', label: '1. Tableau de score', color: '#ffd166', help: 'Encadrez tout le tableau de score (noms, scores, période, horloge). Il sert à détecter les pubs : quand il disparaît, c\'est la pause.' },
@@ -38,13 +38,14 @@ export class Calibration {
     this.el.innerHTML = `
       <div class="cal-head">
         <h2>Calibrer le tableau de score</h2>
-        <div class="cal-steps">${STEPS.map((s, i) => `<button data-step="${i}">${esc(s.label)}</button>`).join('')}</div>
-        <button data-act="auto">Détection auto</button>
-        <button data-act="snap">Nouvelle image</button>
-        <input id="cal-name" placeholder="Nom du profil (RDS, TVA Sports…)" value="${esc(current?.name ?? this.guessName())}">
-        <button data-act="new">Nouveau profil</button>
-        <button data-act="save">Enregistrer</button>
-        <button data-act="cancel">Annuler</button>
+        <div class="cal-steps" role="group">${STEPS.map((s, i) => `<button data-step="${i}"><i style="background:${s.color}"></i>${esc(s.label)}</button>`).join('')}</div>
+        <button class="btn btn-sm" data-act="auto" data-tip="Laissez le jeu se dérouler une dizaine de secondes : la zone qui ne bouge pas pendant que la caméra bouge, c'est le tableau.">${icon('wand-sparkles', 'ic-sm')}Détection auto</button>
+        <button class="btn btn-sm" data-act="snap" data-tip="Reprendre une image du stream">${icon('refresh-cw', 'ic-sm')}Nouvelle image</button>
+        <div class="spacer"></div>
+        <input class="input" id="cal-name" placeholder="Nom du profil (RDS, TVA Sports…)" value="${esc(current?.name ?? this.guessName())}" aria-label="Nom du profil">
+        <button class="btn btn-sm" data-act="new" data-tip="Garder le profil actuel et en créer un autre (autre diffuseur)">Nouveau profil</button>
+        <button class="btn btn-sm btn-primary" data-act="save">${icon('check', 'ic-sm')}Enregistrer</button>
+        <button class="btn btn-sm btn-ghost" data-act="cancel">Annuler</button>
       </div>
       <div class="cal-help"></div>
       <div class="cal-canvas-wrap"><canvas></canvas></div>`;

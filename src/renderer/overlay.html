@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr" class="overlay-window">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' https: data: blob:; media-src 'self' blob: data: mediastream:; style-src 'self' 'unsafe-inline'; connect-src 'self' blob: data:; font-src 'self' data:"
+    />
+    <title>Rondelle — surcouche</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="overlay" aria-live="polite">
+      <div id="fx-tension"></div>
+      <div id="banner" class="banner"></div>
+      <div id="player-card" class="player-card"></div>
+      <div id="adshow" class="adshow"></div>
+      <div id="celebration" class="celebration"><canvas id="confetti"></canvas></div>
+      <pre id="hud" class="hud"></pre>
+    </div>
+    <div id="toasts"></div>
+    <div id="ov-status" class="ov-status"><span class="status-dot warn"></span><span>Rondelle</span></div>
+    <script type="module" src="overlayApp.js"></script>
+  </body>
+</html>

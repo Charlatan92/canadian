@@ -30,7 +30,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'habs-errors-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rondelle-errors-'));
 fs.writeFileSync(
   path.join(userData, 'config.json'),
   JSON.stringify({
@@ -50,7 +50,7 @@ fs.writeFileSync(
   }),
 );
 
-const app = await electron.launch({ args: ['.', '--no-sandbox'], env: { ...process.env, HABS_USER_DATA: userData } });
+const app = await electron.launch({ args: ['.', '--no-sandbox'], env: { ...process.env, RONDELLE_USER_DATA: userData } });
 const win = await app.firstWindow();
 const errors = [];
 win.on('pageerror', (e) => errors.push(String(e)));
@@ -64,16 +64,16 @@ const waitFor = async (fn, ms = 20_000) => {
   return false;
 };
 const st = () => win.evaluate(() => {
-  const s = window.__habs.streams;
+  const s = window.__rondelle.streams;
   return { index: s.index, played: s.playedOnce, recovery: s.recovery, label: s.current?.label, failures: s.mediaFailures.map((m) => m.kind), health: s.health };
 });
 const toasts = () => win.evaluate(() => [...document.querySelectorAll('#toasts .toast')].map((t) => t.textContent));
 
-await win.waitForFunction(() => window.__habs?.streams?.streams.length === 4, null, { timeout: 30_000 });
-const idx = (label) => win.evaluate((l) => window.__habs.streams.streams.findIndex((s) => s.label === l), label);
+await win.waitForFunction(() => window.__rondelle?.streams?.streams.length === 4, null, { timeout: 30_000 });
+const idx = (label) => win.evaluate((l) => window.__rondelle.streams.streams.findIndex((s) => s.label === l), label);
 
 // 1. Liste de lecture refusée une fois : rechargement automatique, puis lecture
-await win.evaluate((i) => window.__habs.streams.play(i), await idx('Instable'));
+await win.evaluate((i) => window.__rondelle.streams.play(i), await idx('Instable'));
 checks['erreur du lecteur détectée'] = await waitFor(async () => (await st()).recovery?.attempt >= 1);
 checks['cause réseau vue (403)'] = await waitFor(async () => (await st()).failures.includes('forbidden'));
 checks['rechargé puis lecture'] = await waitFor(async () => {
@@ -83,7 +83,7 @@ checks['rechargé puis lecture'] = await waitFor(async () => {
 console.log('1.', JSON.stringify(await st()), hits);
 
 // 2. Toujours refusée : rechargement, puis stream suivant
-await win.evaluate((i) => window.__habs.streams.play(i), await idx('Mort'));
+await win.evaluate((i) => window.__rondelle.streams.play(i), await idx('Mort'));
 checks['stream mort abandonné'] = await waitFor(async () => (await st()).label !== 'Mort', 30_000);
 checks['stream suivant lancé'] = await waitFor(async () => (await st()).played, 20_000);
 console.log('2.', JSON.stringify(await st()), hits);
@@ -91,15 +91,15 @@ checks['2 essais sur le stream mort'] = hits.dead === 2;
 
 // 3. Page web à la place du flux : explication claire
 await win.evaluate((i) => {
-  window.__habs.streams.getConfig().stream.autoFailover = false;
-  window.__habs.streams.launchedBy = 'user';
+  window.__rondelle.streams.getConfig().stream.autoFailover = false;
+  window.__rondelle.streams.launchedBy = 'user';
 }, 0);
-await win.evaluate((i) => window.__habs.streams.play(i), await idx('Page web'));
-await win.evaluate(() => (window.__habs.streams.launchedBy = 'user'));
+await win.evaluate((i) => window.__rondelle.streams.play(i), await idx('Page web'));
+await win.evaluate(() => (window.__rondelle.streams.launchedBy = 'user'));
 checks['flux invalide expliqué'] = await waitFor(async () => (await toasts()).some((t) => /invalide|page web/i.test(t)), 25_000);
 console.log('3.', JSON.stringify(await st()), (await toasts()).slice(-3));
 
-const diag = await win.evaluate(() => window.__habs.diagnostics.collect());
+const diag = await win.evaluate(() => window.__rondelle.diagnostics.collect());
 checks['diagnostic : listes de lecture'] = diag.app.media.manifests.some((m) => m.status === 403);
 checks['aucune erreur'] = errors.length === 0;
 

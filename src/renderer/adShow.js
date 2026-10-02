@@ -1,12 +1,14 @@
 import { computeGameStats, formatClock, momentumSeries, periodName, periodStart, shotMap, topPerformers } from '../shared/nhl.js';
+import { matchupColors } from '../shared/theme.js';
 import { esc, initials, photoHtml } from './util.js';
 
 // "Émission" de la régie pendant les pauses publicitaires : une suite de séquences animées
 // (chiffres du match, carte des tirs, momentum, joueur en vedette...) qui recouvre la pub.
 // Tout est calculé à partir de ce que le stream a déjà montré : aucun divulgâcheur.
 
-const RED = '#e5484d'; // équipe suivie (validé avec l'outil de palette, fond sombre)
-const BLUE = '#5b8def'; // adversaire
+// Couleurs des deux équipes (accent lisible sur fond sombre), mises à jour à chaque séquence
+let RED = '#e5484d'; // équipe suivie
+let BLUE = '#5b8def'; // adversaire
 
 export class AdShow {
   constructor(el, { getData, nhl, getConfig }) {
@@ -28,7 +30,7 @@ export class AdShow {
     this.el.style.setProperty('--adshow-opacity', cfg.ads.showOpacity);
     this.el.innerHTML = `
       <div class="as-head">
-        <span class="as-live">RÉGIE</span>
+        <span class="as-live">Rondelle</span>
         <div><div class="as-title">Pendant la pause</div><div class="as-sub">Analyse du match, calculée sur ce que vous avez déjà vu</div></div>
         <div class="as-score"></div>
       </div>
@@ -49,6 +51,7 @@ export class AdShow {
     if (!this.active) return;
     const cfg = this.getConfig();
     const data = this.getData();
+    if (data.colors) ({ team: RED, opp: BLUE } = data.colors);
     const builders = [sceneCompare, sceneShotMap, sceneMomentum, sceneStar, sceneSpotlight, sceneGoalies, sceneGoals];
     let html = null;
     let tries = 0;
@@ -353,5 +356,6 @@ function withTimeout(promise, ms) {
 
 // Utilisé par la Régie pour préparer les données de l'émission
 export function adShowData(game, gt, score, clock) {
-  return { game, gt, score, clock, stats: game ? computeGameStats(game, gt ?? Infinity) : null };
+  const colors = game ? matchupColors(game.team.abbrev, game.opp.abbrev) : null;
+  return { game, gt, score, clock, colors, stats: game ? computeGameStats(game, gt ?? Infinity) : null };
 }

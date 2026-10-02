@@ -1,20 +1,21 @@
 import { net, protocol } from 'electron';
+import { APP_SCHEME } from '../shared/brand.js';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
-// habs://app/... sert l'interface, quelques fichiers de node_modules (OCR hors ligne) et des
+// rondelle://app/... sert l'interface, quelques fichiers de node_modules (OCR hors ligne) et des
 // proxys avec cache disque : photos officielles LNH, modèles de reconnaissance vocale.
 // Un protocole dédié évite les restrictions de file:// et de CORS (pixels lisibles dans un canvas).
 
-export const APP_ORIGIN = 'habs://app';
+export const APP_ORIGIN = `${APP_SCHEME}://app`;
 
 export function registerSchemes() {
   protocol.registerSchemesAsPrivileged([
     {
-      scheme: 'habs',
+      scheme: APP_SCHEME,
       privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
     },
   ]);
@@ -112,13 +113,14 @@ export function handleAppProtocol(root, targetSession, { userData }) {
       const rel = clean.slice('/nhl-img/'.length);
       const file = safeJoin(imgCache, rel);
       if (!file) return new Response('Interdit', { status: 403 });
-      // HABS_NHL_IMG_BASE : serveur local de photos pour les tests automatiques
-      return cachedRemote(`${process.env.HABS_NHL_IMG_BASE ?? 'https://assets.nhle.com/'}${rel}`, file);
+      // RONDELLE_NHL_IMG_BASE : serveur local de photos pour les tests automatiques
+      return cachedRemote(`${process.env.RONDELLE_NHL_IMG_BASE ?? 'https://assets.nhle.com/'}${rel}`, file);
     }
     // Têtes émoji générées
     if (clean.startsWith('/heads/')) {
       const file = safeJoin(headsDir, clean.slice('/heads/'.length));
-      if (!file || !fs.existsSync(file)) return new Response(null, { status: 404 });
+      // Pas encore créée : 204 (pas une erreur, l'interface la génère)
+      if (!file || !fs.existsSync(file)) return new Response(null, { status: file ? 204 : 403 });
       return serveFile(file, 'image/png');
     }
     // Modèles Hugging Face (reconnaissance vocale) : /hf/<organisation>/<modèle>/resolve/main/<fichier>
@@ -127,8 +129,8 @@ export function handleAppProtocol(root, targetSession, { userData }) {
       const m = rel.match(/^([\w.-]+)\/([\w.-]+)\/resolve\/main\/(.+)$/);
       const file = m ? safeJoin(modelCache, `${m[1]}/${m[2]}/${m[3]}`) : null;
       if (!file) return new Response('Interdit', { status: 403 });
-      // HABS_HF_BASE : faux dépôt local pour les tests automatiques
-      const base = process.env.HABS_HF_BASE ?? 'https://huggingface.co/';
+      // RONDELLE_HF_BASE : faux dépôt local pour les tests automatiques
+      const base = process.env.RONDELLE_HF_BASE ?? 'https://huggingface.co/';
       const remote = `${base}${m[1]}/${m[2]}/resolve/main/${m[3]}`;
       if (request.headers.get('range') === 'bytes=0-0') return probeRemote(remote, file);
       return cachedRemote(remote, file);
@@ -142,10 +144,10 @@ export function handleAppProtocol(root, targetSession, { userData }) {
     }
     return new Response('Introuvable', { status: 404 });
   };
-  protocol.handle('habs', handler);
+  protocol.handle(APP_SCHEME, handler);
   // La session du stream n'a accès qu'à la page de démonstration (pas aux proxys ni à l'interface)
-  if (targetSession && !targetSession.protocol.isProtocolHandled('habs')) {
-    targetSession.protocol.handle('habs', (request) => {
+  if (targetSession && !targetSession.protocol.isProtocolHandled(APP_SCHEME)) {
+    targetSession.protocol.handle(APP_SCHEME, (request) => {
       const { pathname } = new URL(request.url);
       if (!/^\/(demo|shared)\//.test(pathname)) return new Response('Interdit', { status: 403 });
       return handler(request);

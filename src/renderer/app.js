@@ -1,187 +1,333 @@
-import { DEFAULT_CONFIG, mergeConfig } from '../shared/config.js';
-import { teamLabel } from '../shared/nhl.js';
+import { APP_NAME } from '../shared/brand.js';
+import { teamColor, teamLabel, teamName } from '../shared/nhl.js';
+import { providerOf } from '../shared/providers.js';
 import { AgentBridge } from './agentBridge.js';
 import { Calibration } from './calibration.js';
-import { DEMO_PROFILE, createDemoApi } from './demo.js';
+import { createRegie } from './core/regie.js';
+import { createDemoApi } from './demo.js';
 import { Diagnostics } from './diagnostics.js';
-import { Director } from './director.js';
-import { EmojiHeads, seasonLabel } from './emojiHeads.js';
-import { VoiceEngine } from './voice/voiceEngine.js';
+import { EmojiHeads } from './emojiHeads.js';
 import { GoalHorn } from './horn.js';
 import { NhlService } from './nhlService.js';
 import { OcrEngine } from './ocrEngine.js';
-import { overlayRefs } from './overlays.js';
+import { Toasts, overlayRefs } from './overlays.js';
 import { SettingsPanel } from './settings.js';
 import { StreamManager } from './streamManager.js';
-import { $, esc, installImageFallback } from './util.js';
-import { VisionPipeline } from './visionPipeline.js';
+import { RosterPanel } from './ui/roster.js';
+import { installTooltips } from './ui/tooltip.js';
+import { watchVoice } from './ui/voiceToasts.js';
+import { Welcome } from './ui/welcome.js';
+import { $, applyTeamTheme, esc, icon, installImageFallback, logoMarkHtml, teamLogoHtml } from './util.js';
 
 installImageFallback();
+installTooltips();
 
-const info = await window.habs.info();
+const info = await window.rondelle.info();
 const demo = info.demo;
-const demoStart = Date.now();
-let cfg = await window.habs.getConfig();
-if (demo) {
-  // La démo ne touche pas à votre configuration : tout reste en mémoire
-  cfg = structuredClone(cfg);
-  cfg.vision.profiles = [structuredClone(DEMO_PROFILE)];
-  cfg.vision.activeProfile = DEMO_PROFILE.id;
-  cfg.sync.manualDelaySec = 25;
-  cfg.stream.customStreams = [{ url: `habs://app/demo/stream.html?start=${demoStart}`, label: 'Stream démo', lang: 'fr' }];
-  document.title = 'Habs Régie — démo';
-}
+let cfg = await window.rondelle.getConfig();
 const getConfig = () => cfg;
+// 'web' : le stream s'ouvre dans l'app | 'overlay' : la vidéo est dans le navigateur, cette
+// fenêtre devient le panneau de contrôle de la surcouche
+const MODE = cfg.source === 'overlay' ? 'overlay' : 'web';
+document.body.classList.add(`mode-${MODE}`);
+document.title = demo ? `${APP_NAME} — démo` : APP_NAME;
+applyTeamTheme(cfg.team);
+$('.logo-mark').outerHTML = logoMarkHtml();
 
-const webview = $('#stream');
-const overlays = overlayRefs();
-const toast = (text, opts) => overlays.toasts.show(text, opts);
-const bridge = new AgentBridge(webview);
-const streams = new StreamManager({ webview, getConfig, toast, demo });
-const nhl = new NhlService({ api: demo ? createDemoApi(demoStart) : window.habs.nhl, getConfig });
-const ocr = new OcrEngine();
-const vision = new VisionPipeline({ ocr });
-const horn = new GoalHorn();
-const heads = new EmojiHeads();
-const voice = new VoiceEngine({ bridge });
+const toasts = new Toasts($('#toasts'));
+const toast = (text, opts) => toasts.show(text, opts);
 
+// ------------------------------------------------------------------ Barre du haut
+
+function renderTeamChip() {
+  $('#team-chip').innerHTML = `${teamLogoHtml(cfg.team, { logos: cfg.ui.logos })}<span class="team-chip-name">${esc(teamName(cfg.team))}</span>`;
+  $('#team-chip').dataset.tip = `${teamLabel(cfg.team)} : cliquez pour changer d'équipe`;
+}
+
+function gameHtml(v) {
+  // Logo officiel, ou pastille de couleur (l'abréviation est déjà écrite à côté)
+  const logo = (a) => (cfg.ui.logos ? teamLogoHtml(a) : `<span class="team-dot" style="background:${teamColor(a)}"></span>`);
+  if (!v || v.kind === 'none' || v.kind === 'error') return `<span class="muted">${esc(v?.text ?? 'Recherche du match…')}</span>`;
+  if (v.kind === 'scheduled') {
+    return `<span class="gp-team">${logo(v.away)}${esc(v.away)}</span><span class="muted">@</span><span class="gp-team">${esc(v.home)}${logo(v.home)}</span>
+      <span class="gp-when">${esc(v.when)}${v.tv ? ` · ${esc(v.tv)}` : ''}</span>`;
+  }
+  return `${v.live ? '<span class="gp-live" aria-label="En direct"></span>' : ''}<span class="gp-team">${logo(v.team)}${esc(v.team)}</span>
+    <span class="gp-score">${v.score.team} – ${v.score.opp}</span><span class="gp-team">${esc(v.opp)}${logo(v.opp)}</span>
+    ${v.when ? `<span class="gp-when">${esc(v.when)}</span>` : ''}`;
+}
+
+const MODE_LABELS = { game: 'En jeu', break: 'Pause pub', unknown: 'Pub : ?' };
+let lastGameKey = '';
 const ui = {
   demo,
   toast,
   setMode(state) {
-    $('.mode-dot').className = `mode-dot ${state}`;
-    $('#mode-label').textContent = { game: 'En jeu', break: 'Pause pub', unknown: 'Pub : ?' }[state] ?? state;
+    $('.mode-dot').className = `mode-dot status-dot ${state}`;
+    $('#mode-label').textContent = MODE_LABELS[state] ?? state;
   },
-  setGamePill(content, isHtml = false) {
-    if (isHtml) $('#game-pill').innerHTML = content;
-    else $('#game-pill').innerHTML = `<span class="muted">${esc(content)}</span>`;
+  setGame(view) {
+    const key = JSON.stringify(view);
+    if (key === lastGameKey) return;
+    lastGameKey = key;
+    $('#game-pill').innerHTML = gameHtml(view);
   },
   setSync(text, title) {
-    const el = $('#sync-pill');
-    el.textContent = text;
-    el.title = title;
+    $('#sync-pill span').textContent = text;
+    $('#sync-pill').dataset.tip = title;
   },
 };
 
+// ------------------------------------------------------------------ Réglages partagés
+
 async function saveConfig(next, { silent = false } = {}) {
   const prev = cfg;
-  cfg = demo ? mergeConfig(DEFAULT_CONFIG, next) : await window.habs.setConfig(next);
+  cfg = await window.rondelle.setConfig(next);
   onConfigChanged(prev, silent);
   return cfg;
 }
 
-const director = new Director({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads, voice });
-const diagnostics = new Diagnostics({ webview, bridge, streams, director, getConfig });
+// Réglages modifiés ailleurs (fenêtre de surcouche, raccourci global)
+window.rondelle.on('config-changed', (next) => {
+  if (JSON.stringify(next) === JSON.stringify(cfg)) return;
+  const prev = cfg;
+  cfg = next;
+  onConfigChanged(prev, false);
+});
+
+let regie = null; // mode lecteur intégré
+let streams = null;
+let bridge = null;
+let webview = $('#stream');
+
+function onConfigChanged(prev, silent) {
+  if (prev.source !== cfg.source) {
+    // Changement de mode : la fenêtre se reconstruit (la surcouche est lancée ou arrêtée par le process principal)
+    location.reload();
+    return;
+  }
+  if (prev.team !== cfg.team || prev.ui.logos !== cfg.ui.logos) {
+    applyTeamTheme(cfg.team);
+    renderTeamChip();
+    lastGameKey = '';
+  }
+  if (prev.team !== cfg.team && regie) {
+    regie.nhl.restart();
+    streams.refresh();
+    toast(`Équipe suivie : ${teamLabel(cfg.team)}`, { kind: 'ok' });
+  }
+  regie?.director.applyConfig();
+  document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
+  $('#btn-theatre').classList.toggle('active', cfg.stream.theatreMode);
+  if (regie && (prev.audio.hornFile !== cfg.audio.hornFile || prev.audio.goalSongFile !== cfg.audio.goalSongFile)) regie.horn.loadCustom();
+  if (
+    streams &&
+    (JSON.stringify(prev.stream.languagePriority) !== JSON.stringify(cfg.stream.languagePriority) ||
+      JSON.stringify(prev.stream.customStreams) !== JSON.stringify(cfg.stream.customStreams) ||
+      prev.stream.homeUrl !== cfg.stream.homeUrl)
+  ) {
+    streams.refresh();
+  }
+  if (settings.open && !silent) settings.render();
+  if (MODE === 'overlay') renderControl();
+}
+
+// Effectifs et têtes émoji : disponibles dans les deux modes
+const heads = new EmojiHeads();
+const rosterNhl = new NhlService({ api: demo ? createDemoApi(info.demoStart) : window.rondelle.nhl, getConfig });
+const roster = new RosterPanel({ heads, nhl: rosterNhl, getConfig, toast });
+const localHorn = new GoalHorn();
+
+let overlayStatus = null;
 
 const settings = new SettingsPanel($('#settings'), {
   getConfig,
   saveConfig,
   actions: {
-    testGoal: () => testGoal(),
-    testHorn: () => horn.play({ hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume }),
+    testGoal: () => (MODE === 'overlay' ? window.rondelle.overlayCommand({ type: 'test-goal' }) : testGoal()),
+    testHorn: () => (regie?.horn ?? localHorn).play({ hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume }),
     calibrate: () => calibration.show(),
     toast,
-    refreshStreams: () => streams.refresh(),
-    currentUrl: () => webview.getURL(),
+    refreshStreams: () => streams?.refresh(),
+    currentUrl: () => (MODE === 'web' ? webview.getURL() : ''),
     copyDiagnostics: () => copyDiagnostics(),
-    makeHeads: () => makeRosterHeads(),
+    displays: () => window.rondelle.displays(),
+    overlayStatus: () => ({ capturing: !!overlayStatus?.capturing, detail: overlayStatus?.health?.reason }),
+    voiceStatus: () => (MODE === 'overlay' ? overlayStatus?.voice : regie?.voice.status) ?? { state: 'off' },
+    info: () => info,
+    checkUpdates: (manual) => checkUpdates(manual),
+    welcome: () => welcome.show(),
   },
+  renderers: { rosters: (body) => roster.mount(body.querySelector('#roster-panel')) },
 });
 
+const welcome = new Welcome($('#welcome'), { getConfig, saveConfig, displays: () => window.rondelle.displays() });
+
+// En surcouche, l'image vient de la fenêtre de surcouche (qui capture l'écran)
+const remoteBridge = {
+  async snapshot(maxWidth) {
+    const r = await window.rondelle.overlayRequest('snapshot', { maxWidth });
+    if (!r || r.error) throw new Error(r?.error ?? 'pas de réponse');
+    return r;
+  },
+  async burst(opts) {
+    const r = await window.rondelle.overlayRequest('burst', opts);
+    if (!r || r.error) throw new Error(r?.error ?? 'pas de réponse');
+    return r;
+  },
+};
+
 const calibration = new Calibration($('#calibration'), {
-  bridge,
-  ocr,
+  bridge: {
+    snapshot: (w) => (MODE === 'overlay' ? remoteBridge : bridge).snapshot(w),
+    burst: (o) => (MODE === 'overlay' ? remoteBridge : bridge).burst(o),
+  },
+  ocr: new OcrEngine(),
   getConfig,
   saveConfig,
   toast,
   onSaved: () => {
-    director.applyConfig();
-    vision.learnReference();
+    if (MODE === 'overlay') return window.rondelle.overlayCommand({ type: 'learn-reference' });
+    regie.director.applyConfig();
+    regie.vision.learnReference();
   },
   guessName: () => {
-    const tv = nhl.scheduleGame?.tvBroadcasts ?? [];
+    if (MODE === 'overlay') return providerOf(cfg.overlay.provider).name;
+    const tv = regie?.nhl.scheduleGame?.tvBroadcasts ?? [];
     const fr = tv.find((b) => /RDS|TVA/i.test(b.network));
     return (fr ?? tv[0])?.network ?? `Profil ${cfg.vision.profiles.length + 1}`;
   },
 });
 
-function onConfigChanged(prev, silent) {
-  if (prev.team !== cfg.team) {
-    nhl.restart();
-    streams.refresh();
+$('#team-chip').addEventListener('click', () => {
+  settings.teamOpen = true;
+  settings.toggle(true, 'general');
+});
+$('#btn-calibrate').addEventListener('click', () => calibration.show());
+$('#btn-settings').addEventListener('click', () => settings.toggle());
+
+// ------------------------------------------------------------------ Diagnostic, mises à jour
+
+let diagnostics = null;
+async function copyDiagnostics() {
+  try {
+    const report = diagnostics
+      ? await diagnostics.collect()
+      : { quand: new Date().toISOString(), mode: MODE, app: await window.rondelle.diagnostics(), surcouche: overlayStatus, reglages: { equipe: cfg.team, surcouche: cfg.overlay, voix: cfg.voice } };
+    await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
+    toast('Diagnostic copié : collez-le dans votre message pour qu\'on regarde ce qui bloque.', { kind: 'ok', ms: 6000 });
+  } catch (err) {
+    toast(`Impossible de copier le diagnostic : ${err.message}`, { kind: 'bad' });
   }
-  director.applyConfig();
-  document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
-  $('#btn-theatre').classList.toggle('active', cfg.stream.theatreMode);
-  if (prev.audio.hornFile !== cfg.audio.hornFile || prev.audio.goalSongFile !== cfg.audio.goalSongFile) horn.loadCustom();
-  if (
-    JSON.stringify(prev.stream.languagePriority) !== JSON.stringify(cfg.stream.languagePriority) ||
-    JSON.stringify(prev.stream.customStreams) !== JSON.stringify(cfg.stream.customStreams) ||
-    prev.stream.homeUrl !== cfg.stream.homeUrl
-  ) {
-    streams.refresh();
-  }
-  if (settings.open && !silent) settings.render();
 }
 
-// ------------------------------------------------------------------ Streams
-
-function renderStreamList() {
-  const sel = $('#stream-select');
-  if (!streams.streams.length) {
-    sel.innerHTML = '<option>Aucun stream trouvé pour le match</option>';
+async function checkUpdates(manual = false) {
+  const r = await window.rondelle.checkUpdates();
+  if (!manual) await saveConfig({ ...cfg, updates: { ...cfg.updates, lastCheck: Date.now() } }, { silent: true });
+  if (!r?.ok) {
+    if (manual) toast(`Vérification impossible : ${r?.error ?? 'réseau'}`, { kind: 'warn' });
     return;
   }
-  sel.innerHTML =
-    `<option value="-1" ${streams.index < 0 ? 'selected' : ''}>${streams.streams.length} stream(s) trouvé(s) — choisir…</option>` +
-    streams.streams.map((s, i) => `<option value="${i}" ${i === streams.index ? 'selected' : ''}>${esc(streams.label(s))}</option>`).join('');
+  if (r.newer) {
+    toast(`${APP_NAME} ${r.latest} est disponible (vous avez la ${r.current}).`, {
+      kind: 'ok',
+      ms: 20_000,
+      actions: [{ label: 'Télécharger', fn: () => window.rondelle.openExternal(r.url) }],
+    });
+  } else if (manual) toast(`Vous avez la dernière version (${r.current}).`, { kind: 'ok' });
 }
 
-streams.on('list', renderStreamList);
-streams.on('current', renderStreamList);
-streams.on('health', (h) => {
-  const dot = $('#stream-health');
-  dot.className = `dot ${{ ok: 'ok', warn: 'warn', bad: 'bad' }[h.level] ?? ''}`;
-  dot.title = h.reason;
-});
-$('#stream-select').addEventListener('change', (e) => {
-  const i = Number(e.target.value);
-  if (i >= 0) streams.play(i);
-});
-$('#btn-next').addEventListener('click', () => streams.next());
-$('#btn-prev').addEventListener('click', () => streams.prev());
-$('#btn-home').addEventListener('click', () => streams.goHome());
-$('#btn-refresh-streams').addEventListener('click', async () => {
-  const list = await streams.refresh();
-  toast(list.length ? `${list.length} stream(s) trouvé(s)` : `Aucun stream trouvé pour le match de ${teamLabel(cfg.team)} : cliquez un lien sur la page`, { kind: list.length ? '' : 'warn' });
-});
+// ------------------------------------------------------------------ Raccourcis
 
-let refreshedOnce = false;
-webview.addEventListener('did-finish-load', () => {
-  if (!refreshedOnce || streams.isHome()) {
-    refreshedOnce = true;
-    streams.refresh();
-  }
-});
-setInterval(() => {
-  if (streams.index < 0 || !streams.streams.length) streams.refresh();
-}, 180_000);
-
-// ------------------------------------------------------------------ Plein écran, théâtre
+function testGoal() {
+  const d = regie?.director;
+  if (!d) return;
+  const g = d.game;
+  const goal = g ? [...g.plays].reverse().find((p) => p.type === 'goal' && p.teamId === g.team.id) : null;
+  d.celebrate(goal ?? null);
+}
 
 let immersive = false;
 async function setImmersive(on) {
   immersive = on;
-  await window.habs.fullscreen(on);
+  await window.rondelle.fullscreen(on);
   document.body.classList.toggle('immersive', on);
   $('#btn-fullscreen').classList.toggle('active', on);
-  if (on && !cfg.stream.theatreMode) await saveConfig({ ...cfg, stream: { ...cfg.stream, theatreMode: true } }, { silent: true });
+  $('#btn-fullscreen').innerHTML = icon(on ? 'shrink' : 'expand');
+  if (on && MODE === 'web' && !cfg.stream.theatreMode) await saveConfig({ ...cfg, stream: { ...cfg.stream, theatreMode: true } }, { silent: true });
 }
 
 function toggleTheatre() {
   saveConfig({ ...cfg, stream: { ...cfg.stream, theatreMode: !cfg.stream.theatreMode } });
   toast(cfg.stream.theatreMode ? 'Mode théâtre désactivé' : 'Mode théâtre activé');
 }
+
+function handleKey(key) {
+  switch (key) {
+    case 'f':
+    case 'f11':
+      setImmersive(!immersive);
+      break;
+    case 'escape':
+      if (calibration.open) calibration.close();
+      else if (welcome.open) break;
+      else if (settings.open) settings.toggle(false);
+      else if (immersive) setImmersive(false);
+      break;
+    case 't':
+      if (MODE === 'web') toggleTheatre();
+      break;
+    case 'n':
+      streams?.next();
+      break;
+    case 'p':
+      streams?.prev();
+      break;
+    case 'm':
+      if (MODE === 'overlay') window.rondelle.overlayCommand({ type: 'cycle-force' });
+      else regie.director.cycleForce();
+      break;
+    case 'g':
+      settings.actions.testGoal();
+      break;
+    case 'b':
+      bridge?.play();
+      break;
+    case 's':
+      settings.toggle();
+      break;
+    case 'c':
+      calibration.show();
+      break;
+    case 'h':
+      saveConfig({ ...cfg, ui: { ...cfg.ui, hideOverlays: !cfg.ui.hideOverlays } });
+      toast(cfg.ui.hideOverlays ? 'Graphiques affichés' : 'Graphiques masqués (H pour les remettre)');
+      break;
+    case 'd':
+      saveConfig({ ...cfg, ui: { ...cfg.ui, debugHud: !cfg.ui.debugHud } });
+      break;
+    case '+':
+    case '=':
+    case '-': {
+      const d = Math.max(0, cfg.sync.manualDelaySec + (key === '-' ? -5 : 5));
+      saveConfig({ ...cfg, sync: { ...cfg.sync, manualDelaySec: d } });
+      const ocr = MODE === 'web' ? regie?.director.clockInfo?.source === 'ocr' : overlayStatus?.syncSource === 'ocr';
+      toast(cfg.sync.mode === 'auto' && ocr ? `Retard manuel : ${d} s (non utilisé tant que l'horloge est lue à l'écran)` : `Retard du stream : ${d} s`);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.altKey || e.metaKey || e.target.closest('input, select, textarea')) return;
+  if (calibration.open && e.key !== 'Escape') return;
+  if ((settings.open || welcome.open) && e.key !== 'Escape') return;
+  handleKey(e.key.toLowerCase());
+});
+
+$('#btn-fullscreen').addEventListener('click', () => setImmersive(!immersive));
 
 const topbar = $('#topbar');
 let peekTimer = null;
@@ -193,334 +339,366 @@ topbar.addEventListener('mouseleave', () => {
   peekTimer = setTimeout(() => topbar.classList.remove('peek'), 1200);
 });
 
-bridge.on('fullscreen', (m) => setImmersive(m.action === 'exit' ? false : !immersive));
-window.habs.on('guest-fullscreen', () => setImmersive(true));
+// ------------------------------------------------------------------ Démarrage commun
 
-// ------------------------------------------------------------------ Raccourcis
-
-function testGoal() {
-  const g = director.game;
-  const goal = g ? [...g.plays].reverse().find((p) => p.type === 'goal' && p.teamId === g.team.id) : null;
-  director.celebrate(goal ?? null);
-}
-
-function handleKey(key) {
-  switch (key) {
-    case 'f':
-    case 'f11':
-      setImmersive(!immersive);
-      break;
-    case 'escape':
-      if (calibration.open) calibration.close();
-      else if (settings.open) settings.toggle(false);
-      else if (immersive) setImmersive(false);
-      break;
-    case 't':
-      toggleTheatre();
-      break;
-    case 'n':
-      streams.next();
-      break;
-    case 'p':
-      streams.prev();
-      break;
-    case 'm':
-      director.cycleForce();
-      break;
-    case 'g':
-      testGoal();
-      break;
-    case 'b':
-      bridge.play();
-      break;
-    case 's':
-      settings.toggle();
-      break;
-    case 'c':
-      calibration.show();
-      break;
-    case 'h':
-      saveConfig({ ...cfg, ui: { ...cfg.ui, hideOverlays: !cfg.ui.hideOverlays } });
-      break;
-    case 'd':
-      saveConfig({ ...cfg, ui: { ...cfg.ui, debugHud: !cfg.ui.debugHud } });
-      break;
-    case '+':
-    case '=':
-    case '-': {
-      const d = Math.max(0, cfg.sync.manualDelaySec + (key === '-' ? -5 : 5));
-      saveConfig({ ...cfg, sync: { ...cfg.sync, manualDelaySec: d } });
-      toast(
-        cfg.sync.mode === 'auto' && director.clockInfo?.source === 'ocr'
-          ? `Retard manuel : ${d} s (non utilisé tant que l'horloge est lue à l'écran)`
-          : `Retard du stream : ${d} s`,
-      );
-      break;
-    }
-    default:
-      break;
-  }
-}
-
-document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey || e.altKey || e.metaKey || e.target.closest('input, select, textarea')) return;
-  if (calibration.open && e.key !== 'Escape') return;
-  handleKey(e.key.toLowerCase());
-});
-bridge.on('hotkey', ({ key }) => {
-  if (calibration.open && key !== 'escape') return;
-  handleKey(key);
-});
-
-// ------------------------------------------------------------------ Barre du haut
-
-$('#btn-theatre').addEventListener('click', toggleTheatre);
-$('#btn-fullscreen').addEventListener('click', () => setImmersive(!immersive));
-$('#btn-calibrate').addEventListener('click', () => calibration.show());
-$('#btn-settings').addEventListener('click', () => settings.toggle());
-$('#mode-pill').addEventListener('click', () => director.cycleForce());
-
-// ------------------------------------------------------------------ Protection anti pop-ups
-
-const pageHost = () => {
-  try {
-    return new URL(webview.getURL()).hostname.replace(/^www\./, '');
-  } catch {
-    return '';
-  }
-};
-
-async function addToList(key, host) {
-  const list = [...new Set([...(cfg.stream[key] ?? []), host])];
-  await saveConfig({ ...cfg, stream: { ...cfg.stream, [key]: list } });
-}
-
-let lastPopupToast = 0;
-window.habs.on('popup-blocked', ({ url, activated }) => {
-  if (Date.now() - lastPopupToast < (activated ? 3000 : 10_000)) return;
-  lastPopupToast = Date.now();
-  let host = url;
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    /* adresse brute */
-  }
-  // Après un vrai clic, ça peut être un lien légitime ouvert en pop-up : on propose de l'ouvrir
-  toast(`Pop-up bloquée (${host})`, {
-    ms: activated ? 7000 : 2500,
-    actions: activated ? [{ label: 'Ouvrir ici', fn: () => webview.loadURL(url) }] : [],
-  });
-});
-window.habs.on('nav-blocked', ({ url, host }) => {
-  toast(`Redirection bloquée vers ${host}`, {
-    kind: 'warn',
-    ms: 8000,
-    actions: [
-      {
-        label: 'Autoriser ce site',
-        fn: async () => {
-          await window.habs.allowNavigation({ hosts: [host] });
-          await addToList('allowedSites', host);
-          webview.loadURL(url);
-        },
-      },
-    ],
-  });
-});
-
-// Erreur du lecteur (« manifestLoadError »…) : reprise automatique par étapes
-let adblockTrial = null; // site où le bloqueur est coupé à l'essai
-async function endAdblockTrial() {
-  if (!adblockTrial) return;
-  await window.habs.adblockTemporary(adblockTrial, false);
-  adblockTrial = null;
-}
-window.habs.on('media-failure', (m) => streams.noteMediaFailure(m));
-bridge.on('player-error', (e) => streams.onPlayerError(e));
-streams.on('player-error', async (e) => {
-  const why = e.media ? `${e.explanation} : ${e.media.label}` : e.explanation;
-  if (e.step === 'reload') {
-    toast(`Le lecteur affiche une erreur (${why}). Nouvel essai…`, { kind: 'warn', ms: 5000 });
-  } else if (e.step === 'adblock-off') {
-    adblockTrial = e.host;
-    await window.habs.adblockTemporary(e.host, true);
-    toast(`Nouvel essai sans bloqueur de pubs sur ${e.host}…`, { kind: 'warn', ms: 5000 });
-    streams.reload();
-  } else if (e.step === 'suggest') {
-    toast(`Ce stream ne se lit pas : ${why}.`, {
-      kind: 'bad',
-      ms: 30_000,
-      actions: [
-        { label: 'Stream suivant', fn: () => streams.next() },
-        { label: 'Recharger', fn: () => streams.reload() },
-        { label: 'Ouvrir dans mon navigateur', fn: () => window.habs.openExternal(webview.getURL()) },
-        { label: 'Copier le diagnostic', fn: () => copyDiagnostics() },
-      ],
-    });
-  }
-});
-streams.on('playing', async () => {
-  // Le lecteur ne démarrait qu'avec le bloqueur coupé : on retient ce site
-  if (adblockTrial && adblockTrial === pageHost()) {
-    const host = adblockTrial;
-    await addToList('adblockExceptions', host);
-    toast(`Le bloqueur de pubs empêchait ce lecteur de démarrer : il reste coupé sur ${host}.`, { ms: 8000 });
-  }
-  await endAdblockTrial();
-});
-streams.on('current', () => endAdblockTrial());
-
-// Vidéo protégée (DRM) : impossible à lire dans l'app, mais la surcouche peut se poser dessus
-const drmWarned = new Set();
-bridge.on('drm', ({ supported, url }) => {
-  const host = pageHost();
-  if (supported || drmWarned.has(host)) return;
-  drmWarned.add(host);
-  toast('Cette vidéo est protégée (DRM) : elle ne peut pas être lue dans l\'app. Ouvrez-la dans votre navigateur et utilisez le mode surcouche.', {
-    kind: 'warn',
-    ms: 30_000,
-    actions: [{ label: 'Ouvrir dans mon navigateur', fn: () => window.habs.openExternal(webview.getURL() || url) }],
-  });
-});
-
-// Le stream lancé n'a toujours pas démarré : aide au lieu de changer de stream dans le dos
-streams.on('stuck', ({ hasVideo }) => {
-  const host = pageHost();
-  const actions = [];
-  if (hasVideo) actions.push({ label: '▶ Lecture', fn: () => bridge.play() });
-  if (cfg.stream.adblock && host && !cfg.stream.adblockExceptions.includes(host)) {
-    actions.push({
-      label: 'Réessayer sans bloqueur de pubs',
-      fn: async () => {
-        await addToList('adblockExceptions', host);
-        webview.reload();
-      },
-    });
-  }
-  actions.push({ label: 'Stream suivant', fn: () => streams.next() });
-  actions.push({ label: 'Ouvrir dans mon navigateur', fn: () => window.habs.openExternal(webview.getURL()) });
-  actions.push({ label: 'Copier le diagnostic', fn: () => copyDiagnostics() });
-  const media = streams.recentMediaFailure();
-  const text = hasVideo ? 'La vidéo est en pause : cliquez sur ▶ dans le lecteur.' : 'Le lecteur ne démarre pas ?';
-  toast(media ? `${text} Cause probable : ${media.label}.` : text, {
-    kind: 'warn',
-    ms: 30_000,
-    actions,
-  });
-});
-
-// « Créer les têtes émoji du roster » : toute l'équipe suivie, en PNG dans Images/Habs Régie
-let makingHeads = false;
-async function makeRosterHeads() {
-  if (makingHeads) return;
-  makingHeads = true;
-  toast(`Création des têtes émoji ${teamLabel(cfg.team)} ${seasonLabel()}…`, { ms: 4000 });
-  try {
-    let lastToast = 0;
-    const res = await heads.generateRoster({
-      nhl,
-      team: cfg.team,
-      onProgress: (i, n) => {
-        if (i === n || Date.now() - lastToast > 4000) {
-          lastToast = Date.now();
-          toast(`Têtes émoji : ${i}/${n}`, { ms: 2500 });
-        }
-      },
-    });
-    toast(`${res.copied} têtes enregistrées dans ${res.folder}`, { ms: 10_000 });
-  } catch (err) {
-    toast(`Impossible de créer les têtes : ${err.message}`, { kind: 'bad', ms: 8000 });
-  } finally {
-    makingHeads = false;
-  }
-}
-
-async function copyDiagnostics() {
-  try {
-    await diagnostics.copy();
-    toast('Diagnostic copié : collez-le dans votre message pour qu\'on regarde ce qui bloque.', { ms: 6000 });
-  } catch (err) {
-    toast(`Impossible de copier le diagnostic : ${err.message}`, { kind: 'bad' });
-  }
-}
-
-bridge.on('audio-silent', () => {
-  if (cfg.audio.mode !== 'webaudio') return;
-  toast('Le son de ce stream semble bloqué par le mode audio avancé.', {
-    kind: 'warn',
-    ms: 15_000,
-    actions: [
-      {
-        label: 'Passer en mode compatible',
-        fn: async () => {
-          await saveConfig({ ...cfg, audio: { ...cfg.audio, mode: 'element' } });
-          webview.reload();
-        },
-      },
-    ],
-  });
-});
-
-// Téléchargement unique du modèle vocal, puis état de la reconnaissance
-let voiceShown = { state: null, progress: 0, slowHint: false };
-voice.on('status', (st) => {
-  if (st.state === 'ready' && st.device === 'wasm' && st.ms > 3500 && !voiceShown.slowHint && getConfig().voice.model !== 'tiny') {
-    voiceShown.slowHint = true;
-    toast('Voix du commentateur lente sur le processeur : choisissez le modèle « Rapide » dans Réglages → Voix du commentateur.', {
-      kind: 'warn',
-      ms: 9000,
-    });
-  }
-  if (st.state === 'loading' && st.progress != null && st.progress - voiceShown.progress >= 20) {
-    voiceShown.progress = st.progress;
-    toast(`Modèle de reconnaissance vocale : ${st.progress} % (téléchargé une seule fois)`, { ms: 3000 });
-  }
-  if (st.state !== voiceShown.state) {
-    if (st.state === 'ready') toast(`Voix du commentateur : prête (${st.device === 'webgpu' ? 'carte graphique' : 'processeur'})`, { ms: 4000 });
-    if (st.state === 'error') {
-      toast(
-        st.offline
-          ? 'Voix du commentateur : modèle pas encore téléchargé (huggingface.co injoignable). Nouvel essai automatique ; les cartes joueur continuent avec les données LNH.'
-          : `Reconnaissance vocale indisponible : ${st.error}`,
-        { kind: 'warn', ms: 8000 },
-      );
-    }
-    if (st.state === 'loading') voiceShown.progress = 0;
-    voiceShown.state = st.state;
-  }
-});
-
-let nhlErrorShown = false;
-nhl.on('error', (err) => {
-  if (nhlErrorShown) return;
-  nhlErrorShown = true;
-  toast(`API LNH injoignable (${err.message}). La régie fonctionne en mode stream seul.`, { kind: 'warn', ms: 8000 });
-});
-
-// ------------------------------------------------------------------ Démarrage
-
-let learnedDemoReference = false;
-bridge.on('primary', (f) => {
-  if (demo && f && !learnedDemoReference) {
-    learnedDemoReference = true;
-    setTimeout(() => vision.learnReference(), 1500);
-  }
-});
-
-director.applyConfig();
+renderTeamChip();
 ui.setMode('unknown');
 document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
-$('#btn-theatre').classList.toggle('active', cfg.stream.theatreMode);
-horn.loadCustom();
-nhl.start();
-if (demo) {
-  streams.refresh();
-  toast('Mode démo : faux stream + fausse API. Appuyez sur D pour le moniteur technique.', { ms: 8000 });
-} else {
-  webview.src = cfg.stream.homeUrl;
-  if (!cfg.vision.profiles.length) {
-    toast('Astuce : pendant le jeu, appuyez sur C pour calibrer le tableau de score (pubs + synchro).', { ms: 10_000 });
-  }
+if (!cfg.onboarded && !demo) welcome.show();
+else if (cfg.updates.check && !demo && Date.now() - cfg.updates.lastCheck > 86_400_000) setTimeout(() => checkUpdates(false), 8000);
+
+if (MODE === 'overlay') startControlPanel();
+else startIntegratedPlayer();
+
+// ================================================================== Mode surcouche
+
+function startControlPanel() {
+  webview.remove();
+  webview = null;
+  $('#overlay').remove();
+  $('#source-web').hidden = true;
+  $('#source-overlay').hidden = false;
+  $('#btn-theatre').hidden = true;
+  $('#control').hidden = false;
+  $('#mode-pill').addEventListener('click', () => window.rondelle.overlayCommand({ type: 'cycle-force' }));
+  window.rondelle.on('overlay-status', (st) => {
+    overlayStatus = st;
+    if (st) {
+      ui.setGame(st.game);
+      ui.setMode(st.mode ?? 'unknown');
+      if (st.sync) ui.setSync(st.sync.text, st.sync.title);
+    }
+    renderControl();
+  });
+  window.rondelle.on('overlay-toast', (t) => toast(t.text, { kind: t.kind, ms: t.ms }));
+  window.rondelle.overlayState().then((s) => {
+    overlayStatus = s?.status ?? null;
+    renderControl();
+  });
+  renderControl();
+  if (!cfg.vision.profiles.length) toast('Astuce : pendant le jeu, calibrez une fois le tableau de score du diffuseur (bouton Calibrer).', { ms: 12_000 });
 }
 
-window.__habs = { director, streams, bridge, vision, nhl, getConfig, diagnostics, heads, voice };
+// Panneau de contrôle : la structure est posée une fois, seules les valeurs changent ensuite
+// (le réafficher chaque seconde empêcherait de cliquer sur ses boutons)
+function renderControl() {
+  const el = $('#control');
+  if (!el || el.hidden) return;
+  const st = overlayStatus;
+  const p = providerOf(cfg.overlay.provider);
+  const capturing = !!st?.capturing;
+  $('#ov-dot').className = `status-dot ${capturing ? (st.health?.level === 'ok' ? 'ok' : 'warn') : 'warn pulse'}`;
+  $('#ov-label').textContent = capturing ? `Surcouche active · ${p.name}` : 'Surcouche en démarrage…';
+  const key = `${cfg.team}|${cfg.overlay.provider}|${cfg.ui.hideOverlays}|${cfg.ui.logos}`;
+  if (el.dataset.key !== key) {
+    el.dataset.key = key;
+    const card = (f, k, ic) => `<div class="stat-card"><div class="k">${icon(ic, 'ic-sm')}${esc(k)}</div><div class="v" data-f="${f}">—</div><div class="s" data-f="${f}-s"></div></div>`;
+    el.innerHTML = `<div class="control-inner">
+        <div class="control-hero">${teamLogoHtml(cfg.team, { logos: cfg.ui.logos })}<div><h1>Surcouche ${esc(p.name)}</h1><p data-f="hero"></p></div></div>
+        <div class="control-grid">
+          ${card('game', 'Match', 'trophy')}${card('mode', 'Ce que la régie voit', 'eye')}${card('image', 'Image', 'monitor')}
+          ${card('sync', 'Synchro', 'timer')}${card('voice', 'Voix du commentateur', 'mic')}${card('duck', 'Son baissé pendant les pubs', 'volume-2')}
+        </div>
+        <div class="control-actions">
+          ${p.url ? `<button class="btn btn-primary" data-ctl="open-provider">${icon('external-link', 'ic-sm')}Ouvrir ${esc(p.name)}</button>` : ''}
+          <button class="btn" data-ctl="calibrate">${icon('scan', 'ic-sm')}Calibrer le tableau</button>
+          <button class="btn" data-ctl="test-goal">${icon('party-popper', 'ic-sm')}Tester la célébration</button>
+          <button class="btn" data-ctl="toggle-hidden">${icon(cfg.ui.hideOverlays ? 'eye' : 'eye-off', 'ic-sm')}${cfg.ui.hideOverlays ? 'Afficher' : 'Masquer'} les graphiques</button>
+          <button class="btn" data-ctl="settings">${icon('settings', 'ic-sm')}Réglages</button>
+          <button class="btn btn-ghost" data-ctl="stop">${icon('power', 'ic-sm')}Revenir au lecteur intégré</button>
+        </div>
+        <div class="card" style="padding:20px 24px"><ol class="steps">
+          <li>Ouvrez le match sur <b>${esc(p.url ? p.name : 'l’appli de votre fournisseur')}</b> et connectez-vous avec votre abonnement télé.</li>
+          <li>Mettez la vidéo <b>en plein écran</b> sur l'écran choisi (Réglages › Surcouche TV).</li>
+          <li>Calibrez une fois le tableau de score du diffuseur, pendant le jeu. Vous pouvez réduire cette fenêtre : <kbd>Ctrl+Alt+R</kbd> la ramène, <kbd>Ctrl+Alt+H</kbd> masque les graphiques.</li>
+        </ol></div>
+      </div>`;
+  }
+  const set = (f, text) => {
+    const n = el.querySelector(`[data-f="${f}"]`);
+    if (n && n.textContent !== text) n.textContent = text;
+  };
+  const voice = st?.voice;
+  const g = st?.game;
+  set('hero', capturing ? (st.health?.reason ?? 'Capture en cours') : "Démarrage de la capture de l'écran…");
+  set('game', g?.kind === 'game' ? `${g.team} ${g.score.team} – ${g.score.opp} ${g.opp}` : (g?.text ?? (g?.kind === 'scheduled' ? `${g.away} @ ${g.home}` : '—')));
+  set('game-s', g?.when ?? '');
+  set('mode', MODE_LABELS[st?.mode] ?? '—');
+  set('mode-s', st?.profile ? `Tableau : ${st.profile}` : 'Tableau non calibré');
+  set('image', capturing ? `${st.width}×${st.height}` : '—');
+  set('image-s', capturing ? `${(st.fps ?? 0).toFixed(1)} analyse(s) / s${st.audio ? ' · son capté' : ' · sans le son'}` : '');
+  set('sync', st?.sync?.text ?? '—');
+  set('voice', !voice || voice.state === 'off' ? 'Arrêtée' : voice.state === 'ready' ? `Prête (${voice.device === 'webgpu' ? 'carte graphique' : 'processeur'})` : voice.state === 'loading' ? `Téléchargement ${voice.progress ?? 0} %` : 'Indisponible');
+  set('voice-s', voice?.lastText ? `« ${voice.lastText.slice(0, 60)} »` : '');
+  set('duck', cfg.overlay.duck === 'off' ? 'Désactivée' : info.duckSupported ? (cfg.overlay.duck === 'all' ? 'Tout le PC' : 'Navigateurs') : 'Windows seulement');
+}
+
+$('#control').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ctl]');
+  if (!b) return;
+  const p = providerOf(cfg.overlay.provider);
+  switch (b.dataset.ctl) {
+    case 'open-provider':
+      return window.rondelle.openExternal(p.url);
+    case 'calibrate':
+      return calibration.show();
+    case 'test-goal':
+      return window.rondelle.overlayCommand({ type: 'test-goal' });
+    case 'toggle-hidden':
+      return handleKey('h');
+    case 'settings':
+      return settings.toggle(true, 'overlay');
+    case 'stop':
+      return saveConfig({ ...cfg, source: 'web' });
+    default:
+  }
+});
+
+// ================================================================== Lecteur intégré
+
+function startIntegratedPlayer() {
+  const overlays = overlayRefs();
+  overlays.toasts = toasts;
+  bridge = new AgentBridge(webview);
+  streams = new StreamManager({ webview, getConfig, toast, demo });
+  regie = createRegie({ bridge, streams, getConfig, saveConfig, overlays, ui, demo, demoStart: info.demoStart });
+  const { director, vision, voice, nhl, horn } = regie;
+  diagnostics = new Diagnostics({ webview, bridge, streams, director, getConfig });
+
+  // --- Streams
+  function renderStreamList() {
+    const sel = $('#stream-select');
+    if (!streams.streams.length) {
+      sel.innerHTML = '<option>Aucun stream trouvé pour le match</option>';
+      return;
+    }
+    sel.innerHTML =
+      `<option value="-1" ${streams.index < 0 ? 'selected' : ''}>${streams.streams.length} stream(s) trouvé(s) — choisir…</option>` +
+      streams.streams.map((s, i) => `<option value="${i}" ${i === streams.index ? 'selected' : ''}>${esc(streams.label(s))}</option>`).join('');
+  }
+
+  streams.on('list', renderStreamList);
+  streams.on('current', renderStreamList);
+  streams.on('health', (h) => {
+    const dot = $('#stream-health');
+    dot.className = `status-dot ${{ ok: 'ok', warn: 'warn', bad: 'bad' }[h.level] ?? ''}`;
+    dot.closest('[data-tip]').dataset.tip = `Stream : ${h.reason}`;
+  });
+  $('#stream-select').addEventListener('change', (e) => {
+    const i = Number(e.target.value);
+    if (i >= 0) streams.play(i);
+  });
+  $('#btn-next').addEventListener('click', () => streams.next());
+  $('#btn-prev').addEventListener('click', () => streams.prev());
+  $('#btn-home').addEventListener('click', () => streams.goHome());
+  $('#btn-refresh-streams').addEventListener('click', async () => {
+    const list = await streams.refresh();
+    toast(list.length ? `${list.length} stream(s) trouvé(s)` : `Aucun stream trouvé pour le match des ${teamName(cfg.team)} : cliquez un lien sur la page`, { kind: list.length ? 'ok' : 'warn' });
+  });
+  $('#btn-theatre').addEventListener('click', toggleTheatre);
+  $('#mode-pill').addEventListener('click', () => director.cycleForce());
+
+  let refreshedOnce = false;
+  webview.addEventListener('did-finish-load', () => {
+    if (!refreshedOnce || streams.isHome()) {
+      refreshedOnce = true;
+      streams.refresh();
+    }
+  });
+  setInterval(() => {
+    if (streams.index < 0 || !streams.streams.length) streams.refresh();
+  }, 180_000);
+
+  bridge.on('fullscreen', (m) => setImmersive(m.action === 'exit' ? false : !immersive));
+  window.rondelle.on('guest-fullscreen', () => setImmersive(true));
+  bridge.on('hotkey', ({ key }) => {
+    if (calibration.open && key !== 'escape') return;
+    handleKey(key);
+  });
+
+  // --- Pop-ups et redirections
+  const pageHost = () => {
+    try {
+      return new URL(webview.getURL()).hostname.replace(/^www\./, '');
+    } catch {
+      return '';
+    }
+  };
+
+  async function addToList(key, host) {
+    const list = [...new Set([...(cfg.stream[key] ?? []), host])];
+    await saveConfig({ ...cfg, stream: { ...cfg.stream, [key]: list } });
+  }
+
+  let lastPopupToast = 0;
+  window.rondelle.on('popup-blocked', ({ url, activated }) => {
+    if (Date.now() - lastPopupToast < (activated ? 3000 : 10_000)) return;
+    lastPopupToast = Date.now();
+    let host = url;
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      /* adresse brute */
+    }
+    // Après un vrai clic, ça peut être un lien légitime ouvert en pop-up : on propose de l'ouvrir
+    toast(`Pop-up bloquée (${host})`, {
+      ms: activated ? 7000 : 2500,
+      actions: activated ? [{ label: 'Ouvrir ici', fn: () => webview.loadURL(url, { httpReferrer: webview.getURL() }) }] : [],
+    });
+  });
+  window.rondelle.on('nav-blocked', ({ url, host }) => {
+    toast(`Redirection bloquée vers ${host}`, {
+      kind: 'warn',
+      ms: 8000,
+      actions: [
+        {
+          label: 'Autoriser ce site',
+          fn: async () => {
+            await window.rondelle.allowNavigation({ hosts: [host] });
+            await addToList('allowedSites', host);
+            webview.loadURL(url, { httpReferrer: webview.getURL() });
+          },
+        },
+      ],
+    });
+  });
+
+  // --- Erreur du lecteur (« manifestLoadError »…) : reprise automatique par étapes
+  let adblockTrial = null; // site où le bloqueur est coupé à l'essai
+  async function endAdblockTrial() {
+    if (!adblockTrial) return;
+    await window.rondelle.adblockTemporary(adblockTrial, false);
+    adblockTrial = null;
+  }
+  window.rondelle.on('media-failure', (m) => streams.noteMediaFailure(m));
+  bridge.on('player-error', (e) => streams.onPlayerError(e));
+  streams.on('player-error', async (e) => {
+    const why = e.media ? `${e.explanation} : ${e.media.label}` : e.explanation;
+    if (e.step === 'reload') {
+      toast(`Le lecteur affiche une erreur (${why}). Nouvel essai…`, { kind: 'warn', ms: 5000 });
+    } else if (e.step === 'adblock-off') {
+      adblockTrial = e.host;
+      await window.rondelle.adblockTemporary(e.host, true);
+      toast(`Nouvel essai sans bloqueur de pubs sur ${e.host}…`, { kind: 'warn', ms: 5000 });
+      streams.reload();
+    } else if (e.step === 'suggest') {
+      toast(`Ce stream ne se lit pas : ${why}.`, {
+        kind: 'bad',
+        ms: 30_000,
+        actions: [
+          { label: 'Stream suivant', fn: () => streams.next() },
+          { label: 'Recharger', fn: () => streams.reload() },
+          { label: 'Ouvrir dans mon navigateur', fn: () => window.rondelle.openExternal(webview.getURL()) },
+          { label: 'Copier le diagnostic', fn: () => copyDiagnostics() },
+        ],
+      });
+    }
+  });
+  streams.on('playing', async () => {
+    // Le lecteur ne démarrait qu'avec le bloqueur coupé : on retient ce site
+    if (adblockTrial && adblockTrial === pageHost()) {
+      const host = adblockTrial;
+      await addToList('adblockExceptions', host);
+      toast(`Le bloqueur de pubs empêchait ce lecteur de démarrer : il reste coupé sur ${host}.`, { ms: 8000 });
+    }
+    await endAdblockTrial();
+  });
+  streams.on('current', () => endAdblockTrial());
+
+  // --- Vidéo protégée (DRM) : impossible à lire dans l'app, mais la surcouche peut se poser dessus
+  const drmWarned = new Set();
+  bridge.on('drm', ({ supported, url }) => {
+    const host = pageHost();
+    if (supported || drmWarned.has(host)) return;
+    drmWarned.add(host);
+    toast("Cette vidéo est protégée (DRM) : elle ne peut pas être lue dans l'app. Ouvrez-la dans votre navigateur et passez en mode surcouche : Rondelle se posera par-dessus.", {
+      kind: 'warn',
+      ms: 30_000,
+      actions: [
+        {
+          label: 'Passer en surcouche',
+          fn: async () => {
+            await window.rondelle.openExternal(webview.getURL() || url);
+            await saveConfig({ ...cfg, source: 'overlay' });
+          },
+        },
+        { label: 'Ouvrir dans mon navigateur', fn: () => window.rondelle.openExternal(webview.getURL() || url) },
+      ],
+    });
+  });
+
+  // --- Le stream lancé n'a toujours pas démarré : aide au lieu de changer de stream dans le dos
+  streams.on('stuck', ({ hasVideo }) => {
+    const host = pageHost();
+    const actions = [];
+    if (hasVideo) actions.push({ label: '▶ Lecture', fn: () => bridge.play() });
+    if (cfg.stream.adblock && host && !cfg.stream.adblockExceptions.includes(host)) {
+      actions.push({
+        label: 'Réessayer sans bloqueur',
+        fn: async () => {
+          await addToList('adblockExceptions', host);
+          webview.reload();
+        },
+      });
+    }
+    actions.push({ label: 'Stream suivant', fn: () => streams.next() });
+    actions.push({ label: 'Ouvrir dans mon navigateur', fn: () => window.rondelle.openExternal(webview.getURL()) });
+    actions.push({ label: 'Copier le diagnostic', fn: () => copyDiagnostics() });
+    const media = streams.recentMediaFailure();
+    const text = hasVideo ? 'La vidéo est en pause : cliquez sur ▶ dans le lecteur.' : 'Le lecteur ne démarre pas ?';
+    toast(media ? `${text} Cause probable : ${media.label}.` : text, { kind: 'warn', ms: 30_000, actions });
+  });
+
+  bridge.on('audio-silent', () => {
+    if (cfg.audio.mode !== 'webaudio') return;
+    toast('Le son de ce stream semble bloqué par le mode audio avancé.', {
+      kind: 'warn',
+      ms: 15_000,
+      actions: [
+        {
+          label: 'Passer en mode compatible',
+          fn: async () => {
+            await saveConfig({ ...cfg, audio: { ...cfg.audio, mode: 'element' } });
+            webview.reload();
+          },
+        },
+      ],
+    });
+  });
+
+  watchVoice(voice, toast, getConfig);
+
+  let nhlErrorShown = false;
+  nhl.on('error', (err) => {
+    if (nhlErrorShown) return;
+    nhlErrorShown = true;
+    toast(`API LNH injoignable (${err.message}). La régie fonctionne en mode stream seul.`, { kind: 'warn', ms: 8000 });
+  });
+
+  // --- Démarrage
+  let learnedDemoReference = false;
+  bridge.on('primary', (f) => {
+    if (demo && f && !learnedDemoReference) {
+      learnedDemoReference = true;
+      setTimeout(() => vision.learnReference(), 1500);
+    }
+  });
+
+  director.applyConfig();
+  $('#btn-theatre').classList.toggle('active', cfg.stream.theatreMode);
+  horn.loadCustom();
+  nhl.start();
+  if (demo) {
+    streams.refresh();
+    toast('Mode démo : faux stream et fausse API. Touche D : moniteur technique.', { ms: 8000 });
+  } else {
+    webview.src = cfg.stream.homeUrl;
+    if (!cfg.vision.profiles.length && cfg.onboarded) {
+      toast('Astuce : pendant le jeu, appuyez sur C pour calibrer le tableau de score (pubs + synchro).', { ms: 10_000 });
+    }
+  }
+
+  window.__rondelle = { director, streams, bridge, vision, nhl, getConfig, diagnostics, heads: regie.heads, voice, settings, roster, welcome, calibration };
+}
+
+if (MODE === 'overlay') window.__rondelle = { getConfig, settings, roster, heads, calibration, overlayStatus: () => overlayStatus };

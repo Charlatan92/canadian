@@ -45,15 +45,15 @@ function drawFakeHeadshot() {
   return c.toDataURL('image/png').split(',')[1];
 }
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'habs-heads-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rondelle-heads-'));
 const app = await electron.launch({
   args: ['.', '--demo', '--no-sandbox'],
-  env: { ...process.env, HABS_USER_DATA: userData, HABS_NHL_IMG_BASE: `http://127.0.0.1:${server.address().port}/` },
+  env: { ...process.env, RONDELLE_USER_DATA: userData, RONDELLE_NHL_IMG_BASE: `http://127.0.0.1:${server.address().port}/` },
 });
 const win = await app.firstWindow();
 const errors = [];
 win.on('pageerror', (e) => errors.push(String(e)));
-await win.waitForFunction(() => window.__habs?.heads, null, { timeout: 20_000 });
+await win.waitForFunction(() => window.__rondelle?.heads, null, { timeout: 20_000 });
 photoPng ??= Buffer.from(await win.evaluate(drawFakeHeadshot), 'base64');
 const checks = {};
 
@@ -70,7 +70,7 @@ const save = async (url, name) => {
 const withPhoto = { id: 990013, first: 'Test', last: 'Photo', number: 13, teamAbbrev: 'MTL', headshot: 'https://assets.nhle.com/mugs/nhl/20262027/MTL/990013.png' };
 const noPhoto = { id: 990093, first: 'Sans', last: 'Photo', number: 93, teamAbbrev: 'MTL', headshot: '' };
 const t0 = Date.now();
-const [u1, u2] = await win.evaluate(async (ps) => Promise.all(ps.map((p) => window.__habs.heads.get(p))), [withPhoto, noPhoto]);
+const [u1, u2] = await win.evaluate(async (ps) => Promise.all(ps.map((p) => window.__rondelle.heads.get(p))), [withPhoto, noPhoto]);
 checks['tête générée depuis une photo'] = typeof u1 === 'string' && u1.startsWith('blob:');
 checks['avatar casque sans photo'] = typeof u2 === 'string' && u2.startsWith('blob:');
 console.log(`2 têtes en ${Date.now() - t0} ms`);
@@ -81,14 +81,14 @@ checks['tête mise en cache sur disque'] = fs.existsSync(path.join(userData, 'he
 // Affichage à l'écran dans les deux nouveaux styles
 for (const style of ['name', 'emoji']) {
   await win.evaluate((st) => {
-    const h = window.__habs;
+    const h = window.__rondelle;
     const cfg = h.getConfig();
     cfg.regie.playerStyle = st;
     cfg.regie.playerCardFilter = 'all';
   }, style);
-  await win.waitForFunction(() => window.__habs.director.game, null, { timeout: 20_000 });
+  await win.waitForFunction(() => window.__rondelle.director.game, null, { timeout: 20_000 });
   await win.evaluate((p) => {
-    const d = window.__habs.director;
+    const d = window.__rondelle.director;
     d.adState = 'game';
     d.overlays.card.shownAt = 0;
     d.showPlayer({ ...p, teamId: d.game.team.id, pos: 'R', name: `${p.first} ${p.last}` }, { label: 'À la rondelle' });
@@ -98,7 +98,7 @@ for (const style of ['name', 'emoji']) {
   await win.screenshot({ path: path.join(outDir, `affichage-${style}.png`) });
 }
 
-const exported = await win.evaluate(() => window.habs.exportHeads({ folder: 'Test export', files: [{ key: 'p990013', name: '13 Test Photo' }], open: false }));
+const exported = await win.evaluate(() => window.rondelle.exportHeads({ folder: 'Test export', files: [{ key: 'p990013', name: '13 Test Photo' }], open: false }));
 checks['export PNG dans Images'] = exported.copied === 1 && fs.existsSync(path.join(exported.folder, '13 Test Photo.png'));
 if (exported.folder) fs.rmSync(exported.folder, { recursive: true, force: true });
 checks['aucune erreur'] = errors.length === 0;

@@ -2,7 +2,11 @@
 // Tout ce qui est réglable dans l'app vit ici (le panneau Réglages est généré à partir de SETTINGS_SCHEMA).
 
 export const DEFAULT_CONFIG = {
+  onboarded: false, // l'écran d'accueil a été vu
   team: 'MTL', // équipe suivie (code LNH)
+  // 'web' : le site du stream s'ouvre dans l'app | 'overlay' : l'app se pose par-dessus le
+  // navigateur ou l'appli télé (abonnement RDS, TVA Sports…)
+  source: 'web',
   // Mots-clés en plus de ceux de l'équipe pour repérer son match sur OnHockey.tv
   extraKeywords: [],
 
@@ -87,9 +91,24 @@ export const DEFAULT_CONFIG = {
     gameId: null, // forcer un match précis (sinon détection auto)
   },
 
+  // Mode surcouche (vidéo regardée dans le navigateur ou l'appli de son fournisseur télé)
+  overlay: {
+    provider: 'rds',
+    display: null, // écran où le match est en plein écran (null : écran principal)
+    duck: 'browsers', // 'browsers' | 'all' (tout le PC sauf Rondelle) | 'off'
+    apps: 'chrome, msedge, firefox, brave, opera, vivaldi',
+    showStatus: true,
+  },
+
   ui: {
     debugHud: false,
     hideOverlays: false,
+    logos: true, // logos officiels chargés depuis la LNH (sinon pastilles aux couleurs)
+  },
+
+  updates: {
+    check: true,
+    lastCheck: 0,
   },
 };
 
@@ -125,170 +144,395 @@ export function setPath(obj, path, value) {
 }
 
 // Schéma du panneau Réglages. type: bool | number | select | text | file
-export const SETTINGS_SCHEMA = [
+// Panneau Réglages : rubriques > groupes > réglages. Chaque réglage a une explication (help)
+// affichée dans la bulle (i).
+// type : bool | select | segmented | range | number | text | file | team | custom
+// when(cfg) : réglage grisé si faux ; format(v) : valeur affichée à côté d'un curseur
+const sec = (v) => `${v} s`;
+const db = (v) => `${v > 0 ? '+' : ''}${v} dB`;
+const pct = (v) => `${Math.round(v * 100)} %`;
+
+export const SETTINGS_SECTIONS = [
   {
-    title: 'Équipe',
-    items: [{ path: 'team', label: 'Équipe suivie', type: 'select', options: 'teams' }],
-  },
-  {
-    title: 'Stream',
-    items: [
-      { path: 'stream.homeUrl', label: 'Page OnHockey.tv', type: 'text' },
-      { path: 'stream.autoStart', label: 'Lancer le meilleur stream quand le match commence', type: 'bool' },
-      { path: 'stream.autoFailover', label: 'Changer de stream automatiquement si panne', type: 'bool' },
-      { path: 'stream.stallSec', label: 'Panne si bloqué depuis (s)', type: 'number', min: 4, max: 60 },
-      { path: 'stream.frozenSec', label: 'Panne si image figée depuis (s)', type: 'number', min: 5, max: 120 },
-      { path: 'stream.failedCooldownSec', label: 'Ne pas réessayer un stream en panne avant (s)', type: 'number', min: 30, max: 900 },
+    id: 'general',
+    title: 'Général',
+    icon: 'house',
+    intro: 'Votre équipe et votre façon de regarder les matchs.',
+    groups: [
       {
-        path: 'stream.languagePriority',
-        label: 'Langue préférée',
-        type: 'select',
-        options: [
-          { value: ['fr', 'en', 'other'], label: 'Français, puis anglais' },
-          { value: ['en', 'fr', 'other'], label: 'Anglais, puis français' },
-          { value: ['fr', 'other', 'en'], label: 'Français seulement si possible' },
+        title: 'Équipe',
+        items: [
+          {
+            path: 'team',
+            type: 'team',
+            label: 'Équipe suivie',
+            help: "La régie suit le match de cette équipe : recherche des streams, célébration de ses buts, cartes de ses joueurs et couleurs de l'interface.",
+          },
         ],
       },
-      { path: 'stream.theatreMode', label: 'Mode théâtre (lecteur seul, plein cadre)', type: 'bool' },
-      { path: 'stream.blockPopups', label: 'Bloquer les pop-ups et redirections', type: 'bool' },
-      { path: 'stream.adblock', label: 'Bloqueur de pubs web', type: 'bool' },
-      { path: 'stream.alwaysOnTop', label: 'Fenêtre toujours au premier plan', type: 'bool' },
+      {
+        title: 'Source vidéo',
+        items: [
+          {
+            path: 'source',
+            type: 'segmented',
+            label: 'Où regardez-vous le match ?',
+            desc: 'Dans Rondelle (site web) ou par-dessus votre navigateur (abonnement télé).',
+            help: "« Dans Rondelle » : le site du stream s'ouvre dans l'app (OnHockey ou un autre site). « Surcouche » : vous regardez avec votre abonnement télé (RDS, TVA Sports, Sportsnet…) dans votre navigateur ou l'appli de votre fournisseur, et Rondelle se pose par-dessus en transparence.",
+            options: [
+              { value: 'web', label: 'Dans Rondelle' },
+              { value: 'overlay', label: 'Surcouche' },
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Application',
+        items: [
+          { path: 'ui.logos', type: 'bool', label: 'Logos officiels des équipes', help: 'Chargés depuis les serveurs de la LNH puis gardés en cache. Désactivé : pastilles aux couleurs des équipes.' },
+          { path: 'updates.check', type: 'bool', label: 'Vérifier les mises à jour', help: "Une fois par jour, Rondelle regarde sur GitHub si une nouvelle version existe. Aucune donnée personnelle n'est envoyée." },
+        ],
+      },
     ],
   },
   {
+    id: 'streams',
+    title: 'Lecteur intégré',
+    icon: 'globe',
+    intro: "Quand le site du stream s'ouvre dans Rondelle : choix du stream, pannes, pop-ups et pubs.",
+    groups: [
+      {
+        title: 'Page des matchs',
+        items: [
+          { path: 'stream.homeUrl', type: 'text', label: 'Adresse de la page des matchs', help: "Page où Rondelle cherche les liens du match (OnHockey.tv par défaut). Vous pouvez indiquer un autre site." },
+          {
+            path: 'stream.languagePriority',
+            type: 'select',
+            label: 'Langue préférée',
+            help: 'Ordre de préférence quand plusieurs streams existent : français (RDS, TVA Sports) ou anglais (Sportsnet, TSN, réseaux américains).',
+            options: [
+              { value: ['fr', 'en', 'other'], label: 'Français, puis anglais' },
+              { value: ['en', 'fr', 'other'], label: 'Anglais, puis français' },
+              { value: ['fr', 'other', 'en'], label: 'Français seulement si possible' },
+            ],
+          },
+          { path: 'stream.autoStart', type: 'bool', label: 'Lancer le meilleur stream au début du match', help: 'Dès que le match commence, le stream le mieux classé (dans votre langue) démarre tout seul.' },
+        ],
+      },
+      {
+        title: 'En cas de panne',
+        items: [
+          { path: 'stream.autoFailover', type: 'bool', label: 'Passer au stream suivant automatiquement', help: "Vidéo bloquée, image figée, erreur du lecteur : la régie essaie de recharger, puis passe au stream suivant. Désactivé : elle vous le propose." },
+          { path: 'stream.stallSec', type: 'range', min: 4, max: 60, step: 1, format: sec, label: 'Vidéo bloquée depuis', help: "Au-delà de ce délai sans que l'image avance (hors pause), le stream est jugé en panne." },
+          { path: 'stream.frozenSec', type: 'range', min: 5, max: 120, step: 1, format: sec, label: 'Image figée depuis', help: "L'image ne change plus du tout (flux gelé) depuis ce délai : le stream est jugé en panne. Ignoré pendant les pubs." },
+          { path: 'stream.failedCooldownSec', type: 'range', min: 30, max: 900, step: 30, format: sec, label: 'Pause avant de réessayer un stream en panne', help: "Un stream tombé en panne n'est pas reproposé avant ce délai." },
+        ],
+      },
+      {
+        title: 'Protection',
+        items: [
+          { path: 'stream.blockPopups', type: 'bool', label: 'Bloquer pop-ups et redirections', help: 'Les nouvelles fenêtres et redirections publicitaires sont refusées. Un lien que vous cliquez vous-même reste toujours permis.' },
+          { path: 'stream.adblock', type: 'bool', label: 'Bloqueur de pubs', help: 'Filtre les pubs et traqueurs (listes EasyList et autres). Le flux vidéo lui-même n\'est jamais filtré. Si un lecteur refuse de démarrer, la régie réessaie sans bloqueur pour ce site.' },
+          { type: 'custom', render: 'adblock-exceptions', label: 'Sites sans bloqueur' },
+          { path: 'stream.theatreMode', type: 'bool', label: 'Mode théâtre', help: 'Isole le lecteur et masque le reste de la page (touche T).' },
+          { path: 'stream.alwaysOnTop', type: 'bool', label: 'Fenêtre toujours au premier plan', help: 'Rondelle reste au-dessus des autres fenêtres.' },
+        ],
+      },
+      { title: 'Mes streams', items: [{ type: 'custom', render: 'custom-streams' }] },
+    ],
+  },
+  {
+    id: 'overlay',
+    title: 'Surcouche TV',
+    icon: 'cast',
+    intro: "Regardez avec votre abonnement télé (RDS, TVA Sports, Sportsnet…) dans votre navigateur : Rondelle se pose par-dessus, en transparence, sans toucher à la vidéo.",
+    groups: [
+      { title: 'État', items: [{ type: 'custom', render: 'overlay-status' }] },
+      {
+        title: 'Votre diffuseur',
+        items: [
+          { path: 'overlay.provider', type: 'select', options: 'providers', label: 'Diffuseur', help: 'Sert à ouvrir le bon site et à choisir la langue de la voix du commentateur. Connectez-vous avec votre fournisseur télé sur le site du diffuseur.' },
+          { path: 'overlay.display', type: 'select', options: 'displays', label: 'Écran du match', help: "L'écran où la vidéo est en plein écran. Rondelle le regarde (tableau de score, son) et y affiche ses graphiques." },
+          { path: 'overlay.showStatus', type: 'bool', label: 'Indicateur discret à l\'écran', help: 'Petite pastille en bas à gauche quand la surcouche démarre ou perd l\'image.' },
+        ],
+      },
+      {
+        title: 'Son pendant les pubs',
+        items: [
+          {
+            path: 'overlay.duck',
+            type: 'segmented',
+            label: 'Baisser le son de',
+            help: "Windows : pendant les pubs, Rondelle baisse le volume de votre navigateur (ou de tout le PC sauf elle-même), puis le remet. Le boost sur l'action n'est pas possible en surcouche.",
+            options: [
+              { value: 'browsers', label: 'Navigateurs' },
+              { value: 'all', label: 'Tout le PC' },
+              { value: 'off', label: 'Rien' },
+            ],
+          },
+          { path: 'overlay.apps', type: 'text', label: 'Programmes concernés', when: (c) => c.overlay.duck === 'browsers', help: 'Noms des programmes (sans .exe), séparés par des virgules. Ajoutez l\'appli de votre fournisseur si vous l\'utilisez.' },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'audio',
     title: 'Son',
-    items: [
+    icon: 'volume-2',
+    intro: 'Volume pendant les pubs, montée du son sur l\'action et klaxon de but.',
+    groups: [
       {
-        path: 'audio.mode',
-        label: 'Contrôle du son',
-        type: 'select',
-        options: [
-          { value: 'webaudio', label: 'Avancé (boost, analyse de la foule)' },
-          { value: 'element', label: 'Compatible (volume du lecteur)' },
+        title: 'Pendant les pubs',
+        items: [
+          { path: 'audio.adDuckDb', type: 'range', min: -60, max: 0, step: 1, format: db, label: 'Baisse du son', help: 'De combien le son descend pendant une pause publicitaire. −24 dB : on entend encore, en fond.' },
+          { path: 'audio.adMute', type: 'bool', label: 'Couper complètement', help: 'Silence total pendant les pubs au lieu d\'une simple baisse.' },
+          { path: 'audio.rampMs', type: 'range', min: 100, max: 3000, step: 100, format: (v) => `${(v / 1000).toFixed(1)} s`, label: 'Durée du fondu', help: 'Le son baisse et remonte en douceur sur cette durée.' },
         ],
       },
-      { path: 'audio.adDuckDb', label: 'Baisse du son pendant les pubs (dB)', type: 'number', min: -60, max: 0 },
-      { path: 'audio.adMute', label: 'Couper complètement le son des pubs', type: 'bool' },
-      { path: 'audio.tensionBoostDb', label: 'Boost quand l\'action est serrée (dB)', type: 'number', min: 0, max: 8 },
-      { path: 'audio.goalBoostDb', label: 'Boost sur les buts (dB)', type: 'number', min: 0, max: 10 },
-      { path: 'audio.hornVolume', label: 'Volume du klaxon de but', type: 'number', min: 0, max: 1, step: 0.05 },
-      { path: 'audio.hornFile', label: 'Klaxon perso (fichier audio)', type: 'file' },
-      { path: 'audio.goalSongFile', label: 'Chanson de but (fichier audio)', type: 'file' },
-      { path: 'audio.goalSongVolume', label: 'Volume de la chanson', type: 'number', min: 0, max: 1, step: 0.05 },
+      {
+        title: 'Pendant le jeu',
+        items: [
+          { path: 'audio.tensionBoostDb', type: 'range', min: 0, max: 8, step: 0.5, format: db, label: 'Boost quand l\'action est serrée', help: "Le son monte un peu quand la foule s'emballe ou que le contexte est chaud (tir dangereux, fin de match serrée). Un limiteur évite toute saturation." },
+          { path: 'audio.goalBoostDb', type: 'range', min: 0, max: 10, step: 0.5, format: db, label: 'Boost sur les buts', help: 'Montée du son pendant quelques secondes après un but.' },
+          {
+            path: 'audio.mode',
+            type: 'segmented',
+            label: 'Contrôle du son',
+            help: "Avancé : boost, limiteur et analyse de la foule. Compatible : volume du lecteur seulement (baisse pendant les pubs, sans boost) pour les sites qui protègent leur flux.",
+            options: [
+              { value: 'webaudio', label: 'Avancé' },
+              { value: 'element', label: 'Compatible' },
+            ],
+          },
+        ],
+      },
+      {
+        title: 'Klaxon de but',
+        items: [
+          { path: 'audio.hornFile', type: 'file', label: 'Klaxon', placeholder: 'Synthétisé', help: 'Votre fichier audio (mp3, ogg, wav…) : par exemple le vrai klaxon de l\'aréna de votre équipe. Sans fichier, un klaxon est synthétisé.' },
+          { path: 'audio.hornVolume', type: 'range', min: 0, max: 1, step: 0.05, format: pct, label: 'Volume du klaxon', help: 'Volume du klaxon de but.' },
+          { path: 'audio.goalSongFile', type: 'file', label: 'Chanson de but', placeholder: 'Aucune', help: 'Chanson jouée juste après le klaxon (facultatif).' },
+          { path: 'audio.goalSongVolume', type: 'range', min: 0, max: 1, step: 0.05, format: pct, label: 'Volume de la chanson', help: 'Volume de la chanson de but.' },
+        ],
+        actions: [{ act: 'test-horn', label: 'Tester le klaxon', icon: 'volume-2' }],
+      },
     ],
   },
   {
-    title: 'Pauses publicitaires',
-    items: [
-      { path: 'ads.enabled', label: 'Détecter les pubs (tableau de score absent)', type: 'bool' },
-      { path: 'ads.confirmSec', label: 'Délai avant de confirmer une pub (s)', type: 'number', min: 1, max: 30 },
-      { path: 'ads.resumeSec', label: 'Délai avant de confirmer le retour (s)', type: 'number', min: 0.5, max: 10, step: 0.5 },
-      { path: 'ads.showStats', label: 'Afficher l\'émission de stats pendant les pubs', type: 'bool' },
-      { path: 'ads.showOpacity', label: 'Opacité de l\'émission de stats', type: 'number', min: 0.3, max: 1, step: 0.02 },
-      { path: 'ads.sceneSec', label: 'Durée de chaque séquence (s)', type: 'number', min: 5, max: 30 },
+    id: 'regie',
+    title: 'Graphiques',
+    icon: 'sparkles',
+    intro: 'Ce que la régie affiche par-dessus l\'image : joueur à la rondelle, pression, célébrations.',
+    groups: [
+      {
+        title: 'Joueur à la rondelle',
+        items: [
+          { path: 'regie.playerCard', type: 'bool', label: 'Afficher le joueur en bas à droite', help: 'Le joueur qui a la rondelle ou vient de faire une action apparaît, façon jeu vidéo.' },
+          {
+            path: 'regie.playerStyle',
+            type: 'segmented',
+            label: 'Style',
+            when: (c) => c.regie.playerCard,
+            help: 'Carte : photo, numéro, nom et stats du match. Nom : plaque façon FIFA. Émoji : tête du joueur en émoji, créée sur votre ordinateur à partir de sa photo officielle.',
+            options: [
+              { value: 'card', label: 'Carte' },
+              { value: 'name', label: 'Nom' },
+              { value: 'emoji', label: 'Émoji' },
+            ],
+          },
+          {
+            path: 'regie.playerSource',
+            type: 'segmented',
+            label: 'Qui a la rondelle ?',
+            when: (c) => c.regie.playerCard,
+            help: "Voix + LNH : les noms dits par le commentateur (reconnaissance vocale sur votre ordinateur) complètent les actions enregistrées par la LNH. LNH seulement : une carte par action enregistrée (mise en jeu, tir, mise en échec…).",
+            options: [
+              { value: 'voice+api', label: 'Voix + LNH' },
+              { value: 'api', label: 'LNH seulement' },
+            ],
+          },
+          {
+            path: 'regie.playerCardFilter',
+            type: 'segmented',
+            label: 'Joueurs affichés',
+            when: (c) => c.regie.playerCard,
+            help: 'Seulement votre équipe, ou les joueurs des deux équipes.',
+            options: [
+              { value: 'team', label: 'Mon équipe' },
+              { value: 'all', label: 'Les deux' },
+            ],
+          },
+          { path: 'regie.playerCardSec', type: 'range', min: 2, max: 15, step: 1, format: sec, label: 'Durée d\'affichage', when: (c) => c.regie.playerCard, help: 'Temps pendant lequel le joueur reste affiché.' },
+        ],
+      },
+      {
+        title: 'Pression',
+        items: [
+          { path: 'regie.tensionFx', type: 'bool', label: 'Effet de pression', help: "Quand l'action est serrée, les bords de l'image prennent la couleur de votre équipe et battent comme un cœur." },
+          { path: 'regie.tensionIntensity', type: 'range', min: 0.1, max: 1, step: 0.05, format: pct, label: 'Intensité', when: (c) => c.regie.tensionFx, help: 'Force de l\'effet de pression.' },
+        ],
+      },
+      {
+        title: 'Buts',
+        items: [
+          { path: 'regie.celebration', type: 'bool', label: 'Célébrer les buts de mon équipe', help: '« BUT ! » plein écran aux couleurs de l\'équipe, carte du marqueur, confettis et klaxon.' },
+          { path: 'regie.celebrationSec', type: 'range', min: 3, max: 30, step: 1, format: sec, label: 'Durée de la célébration', when: (c) => c.regie.celebration, help: 'Durée de la célébration à l\'écran.' },
+          { path: 'regie.confetti', type: 'bool', label: 'Confettis', when: (c) => c.regie.celebration, help: 'Pluie de confettis aux couleurs de l\'équipe.' },
+          { path: 'regie.opponentGoalBanner', type: 'bool', label: 'Bandeau pour les buts adverses', help: 'Un bandeau discret annonce les buts de l\'adversaire.' },
+        ],
+        actions: [{ act: 'test-goal', label: 'Tester la célébration', icon: 'party-popper' }],
+      },
+      {
+        title: 'Affichage',
+        items: [{ path: 'ui.hideOverlays', type: 'bool', label: 'Masquer tous les graphiques', help: 'Cache toutes les surcouches (touche H) sans arrêter l\'analyse.' }],
+      },
     ],
   },
   {
-    title: 'Régie',
-    items: [
-      { path: 'regie.playerCard', label: 'Afficher le joueur à la rondelle (style FIFA)', type: 'bool' },
+    id: 'ads',
+    title: 'Pauses pub',
+    icon: 'megaphone',
+    intro: 'Détection des pubs (le tableau de score du diffuseur disparaît) et émission de stats par-dessus.',
+    groups: [
       {
-        path: 'regie.playerStyle',
-        label: 'Affichage du joueur',
-        type: 'select',
-        options: [
-          { value: 'card', label: 'Carte (photo + nom)' },
-          { value: 'name', label: 'Nom seulement' },
-          { value: 'emoji', label: 'Tête émoji' },
+        title: 'Détection',
+        items: [
+          { path: 'ads.enabled', type: 'bool', label: 'Détecter les pauses publicitaires', help: 'Repose sur le tableau de score du diffuseur, à calibrer une fois (touche C). Les reprises après un but le cachent aussi : la régie attend alors plus longtemps.' },
+          { path: 'ads.confirmSec', type: 'range', min: 1, max: 30, step: 1, format: sec, label: 'Délai de confirmation', when: (c) => c.ads.enabled, help: 'Le tableau doit avoir disparu depuis ce délai pour déclarer une pub.' },
+          { path: 'ads.resumeSec', type: 'range', min: 0.5, max: 10, step: 0.5, format: sec, label: 'Délai de retour au jeu', when: (c) => c.ads.enabled, help: 'Le tableau doit être revenu depuis ce délai pour déclarer la reprise.' },
         ],
       },
       {
-        path: 'regie.playerSource',
-        label: 'Qui a la rondelle ?',
-        type: 'select',
-        options: [
-          { value: 'voice+api', label: 'Voix du commentateur + données LNH' },
-          { value: 'api', label: 'Données LNH seulement' },
+        title: 'Émission de stats',
+        items: [
+          { path: 'ads.showStats', type: 'bool', label: 'Recouvrir la pub par une émission de stats', help: 'Le match en chiffres, carte des tirs, momentum, joueur en vedette, gardiens… calculés uniquement sur ce que vous avez déjà vu.' },
+          { path: 'ads.showOpacity', type: 'range', min: 0.3, max: 1, step: 0.02, format: pct, label: 'Opacité', when: (c) => c.ads.showStats, help: 'À 100 %, la pub est entièrement cachée.' },
+          { path: 'ads.sceneSec', type: 'range', min: 5, max: 30, step: 1, format: sec, label: 'Durée de chaque séquence', when: (c) => c.ads.showStats, help: 'Temps passé sur chaque séquence de l\'émission.' },
         ],
       },
-      {
-        path: 'regie.playerCardFilter',
-        label: 'Joueurs affichés',
-        type: 'select',
-        options: [
-          { value: 'team', label: 'Canadiens seulement' },
-          { value: 'all', label: 'Les deux équipes' },
-        ],
-      },
-      { path: 'regie.playerCardSec', label: 'Durée de la carte (s)', type: 'number', min: 2, max: 15 },
-      { path: 'regie.tensionFx', label: 'Effet de pression quand l\'action est serrée', type: 'bool' },
-      { path: 'regie.tensionIntensity', label: 'Intensité de l\'effet', type: 'number', min: 0.1, max: 1, step: 0.05 },
-      { path: 'regie.celebration', label: 'Célébration des buts du CH', type: 'bool' },
-      { path: 'regie.celebrationSec', label: 'Durée de la célébration (s)', type: 'number', min: 3, max: 30 },
-      { path: 'regie.confetti', label: 'Confettis', type: 'bool' },
-      { path: 'regie.opponentGoalBanner', label: 'Bandeau pour les buts adverses', type: 'bool' },
     ],
   },
   {
+    id: 'voice',
     title: 'Voix du commentateur',
-    items: [
-      { path: 'voice.enabled', label: 'Reconnaître les noms dits par le commentateur', type: 'bool' },
+    icon: 'mic',
+    intro: 'Reconnaissance des noms dits par le commentateur, en français ou en anglais. Tout se passe sur votre ordinateur : le son n\'est jamais envoyé.',
+    groups: [
+      { title: 'État', items: [{ type: 'custom', render: 'voice-status' }] },
       {
-        path: 'voice.model',
-        label: 'Modèle (téléchargé une fois)',
-        type: 'select',
-        options: [
-          { value: 'tiny', label: 'Rapide (~40 Mo, ~120 Mo sur carte graphique)' },
-          { value: 'base', label: 'Équilibré (~80 Mo, ~200 Mo sur carte graphique)' },
-          { value: 'small', label: 'Précis (~250 Mo, ~600 Mo ; carte graphique conseillée)' },
-        ],
-      },
-      {
-        path: 'voice.language',
-        label: 'Langue du commentaire',
-        type: 'select',
-        options: [
-          { value: 'auto', label: 'Celle du stream' },
-          { value: 'fr', label: 'Français' },
-          { value: 'en', label: 'Anglais' },
-        ],
-      },
-      {
-        path: 'voice.device',
-        label: 'Calcul',
-        type: 'select',
-        options: [
-          { value: 'auto', label: 'Automatique' },
-          { value: 'webgpu', label: 'Carte graphique (WebGPU)' },
-          { value: 'wasm', label: 'Processeur' },
+        title: 'Réglages',
+        items: [
+          { path: 'voice.enabled', type: 'bool', label: 'Reconnaître les noms des joueurs', help: 'Active la reconnaissance vocale (si « Qui a la rondelle ? » est sur « Voix + LNH »). Elle ne tourne que pendant le jeu.' },
+          {
+            path: 'voice.model',
+            type: 'segmented',
+            label: 'Modèle',
+            when: (c) => c.voice.enabled,
+            help: 'Téléchargé une seule fois. Rapide : ~40 Mo (~120 Mo sur carte graphique), PC modestes. Équilibré : ~80 Mo (~200 Mo). Précis : ~250 Mo (~600 Mo), carte graphique conseillée.',
+            options: [
+              { value: 'tiny', label: 'Rapide' },
+              { value: 'base', label: 'Équilibré' },
+              { value: 'small', label: 'Précis' },
+            ],
+          },
+          {
+            path: 'voice.language',
+            type: 'segmented',
+            label: 'Langue du commentaire',
+            when: (c) => c.voice.enabled,
+            help: 'Automatique : celle du stream ou du diffuseur choisi.',
+            options: [
+              { value: 'auto', label: 'Auto' },
+              { value: 'fr', label: 'Français' },
+              { value: 'en', label: 'Anglais' },
+            ],
+          },
+          {
+            path: 'voice.device',
+            type: 'segmented',
+            label: 'Calcul',
+            when: (c) => c.voice.enabled,
+            help: 'Carte graphique (WebGPU) : rapide. Processeur : partout, plus lent. Automatique : la carte graphique si elle est disponible.',
+            options: [
+              { value: 'auto', label: 'Auto' },
+              { value: 'webgpu', label: 'Carte graphique' },
+              { value: 'wasm', label: 'Processeur' },
+            ],
+          },
         ],
       },
     ],
   },
   {
-    title: 'Synchronisation',
-    items: [
+    id: 'sync',
+    title: 'Synchro & tableau',
+    icon: 'timer',
+    intro: 'Les actions de la LNH sont montrées au moment où elles arrivent sur VOTRE écran : zéro divulgâcheur.',
+    groups: [
       {
-        path: 'sync.mode',
-        label: 'Mode',
-        type: 'select',
-        options: [
-          { value: 'auto', label: 'Auto (lecture de l\'horloge du stream)' },
-          { value: 'manual', label: 'Manuel (délai fixe)' },
+        title: 'Synchronisation',
+        items: [
+          {
+            path: 'sync.mode',
+            type: 'segmented',
+            label: 'Méthode',
+            help: "Horloge : la régie lit le temps sur le tableau de score du diffuseur (le plus précis). Retard fixe : vous réglez le retard du stream à la main (touches + et −).",
+            options: [
+              { value: 'auto', label: 'Horloge lue' },
+              { value: 'manual', label: 'Retard fixe' },
+            ],
+          },
+          { path: 'sync.manualDelaySec', type: 'range', min: 0, max: 300, step: 1, format: sec, label: 'Retard du stream', help: 'Retard de votre vidéo sur le direct. Utilisé en mode « Retard fixe », ou tant que l\'horloge n\'est pas lisible.' },
+          { path: 'sync.maxLateSec', type: 'range', min: 5, max: 300, step: 5, format: sec, label: 'Ignorer les actions en retard de plus de', help: 'Une action qui arrive trop tard n\'est plus affichée (sauf les buts).' },
         ],
       },
-      { path: 'sync.manualDelaySec', label: 'Retard du stream sur le direct (s)', type: 'number', min: 0, max: 600 },
-      { path: 'sync.maxLateSec', label: 'Ignorer les actions en retard de plus de (s)', type: 'number', min: 5, max: 300 },
+      { title: 'Tableaux de score calibrés', items: [{ type: 'custom', render: 'profiles' }] },
     ],
   },
   {
-    title: 'Performance',
-    items: [
-      { path: 'vision.fps', label: 'Analyses d\'image par seconde', type: 'number', min: 0.5, max: 6, step: 0.5 },
-      { path: 'vision.ocr', label: 'Lire l\'horloge et le score (OCR)', type: 'bool' },
-      { path: 'vision.ocrHz', label: 'Lectures OCR par seconde', type: 'number', min: 0.25, max: 3, step: 0.25 },
-      { path: 'nhl.pollSec', label: 'Rafraîchissement API NHL (s)', type: 'number', min: 3, max: 60 },
-      { path: 'ui.debugHud', label: 'Afficher le moniteur technique', type: 'bool' },
+    id: 'rosters',
+    title: 'Effectifs & émojis',
+    icon: 'users',
+    intro: 'Les alignements 2026-27 des 32 équipes, avec leurs têtes émoji créées sur votre ordinateur à partir des photos officielles.',
+    groups: [{ items: [{ type: 'custom', render: 'roster' }] }],
+  },
+  {
+    id: 'keys',
+    title: 'Raccourcis',
+    icon: 'keyboard',
+    intro: 'Toutes les touches de Rondelle.',
+    groups: [{ items: [{ type: 'custom', render: 'keys' }] }],
+  },
+  {
+    id: 'advanced',
+    title: 'Avancé',
+    icon: 'wrench',
+    intro: 'Performance, dépannage et remise à zéro.',
+    groups: [
+      {
+        title: "Analyse de l'image",
+        items: [
+          { path: 'vision.fps', type: 'range', min: 0.5, max: 6, step: 0.5, format: (v) => `${v} / s`, label: 'Analyses par seconde', help: 'Petites vignettes analysées (pubs, image figée). 2 par seconde suffisent ; plus = plus réactif, un peu plus de calcul.' },
+          { path: 'vision.ocr', type: 'bool', label: 'Lire l\'horloge et le score', help: 'Reconnaissance de texte (hors ligne) sur le tableau calibré. Indispensable à la synchro « Horloge lue ».' },
+          { path: 'vision.ocrHz', type: 'range', min: 0.25, max: 3, step: 0.25, format: (v) => `${v} / s`, label: 'Lectures par seconde', when: (c) => c.vision.ocr, help: 'Fréquence de lecture de l\'horloge.' },
+          { path: 'nhl.pollSec', type: 'range', min: 3, max: 60, step: 1, format: sec, label: 'Rafraîchissement des données LNH', help: 'Fréquence des appels à l\'API publique de la LNH pendant un match.' },
+        ],
+      },
+      {
+        title: 'Dépannage',
+        items: [
+          { path: 'ui.debugHud', type: 'bool', label: 'Moniteur technique', help: 'Affiche en haut à gauche ce que la régie mesure (touche D).' },
+          { type: 'custom', render: 'troubleshoot' },
+        ],
+      },
     ],
+  },
+  {
+    id: 'about',
+    title: 'À propos',
+    icon: 'badge-info',
+    groups: [{ items: [{ type: 'custom', render: 'about' }] }],
   },
 ];
+
+export const SETTINGS_ITEMS = SETTINGS_SECTIONS.flatMap((s) => s.groups.flatMap((g) => g.items)).filter((i) => i.path);

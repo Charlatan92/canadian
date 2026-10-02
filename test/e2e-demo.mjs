@@ -31,7 +31,7 @@ const t0 = Date.now();
 const since = () => (Date.now() - t0) / 1000;
 const state = () =>
   win.evaluate(() => {
-    const h = window.__habs;
+    const h = window.__rondelle;
     if (!h) return null;
     const d = h.director;
     return {

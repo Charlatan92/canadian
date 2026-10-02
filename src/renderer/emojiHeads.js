@@ -63,6 +63,14 @@ export class EmojiHeads {
     return this.jobs.get(key);
   }
 
+  // Tête déjà créée (mémoire ou disque) sans en générer une nouvelle
+  async peek(player) {
+    const key = this.key(player);
+    if (this.urls.has(key)) return this.urls.get(key);
+    const res = await fetch(`/heads/${key}.png`).catch(() => null);
+    return res?.status === 200 ? this.#remember(key, await res.blob()) : null;
+  }
+
   // Préparation en arrière-plan (joueurs en uniforme ce soir)
   prefetch(players) {
     for (const p of players) this.get(p).catch(() => {});
@@ -70,9 +78,9 @@ export class EmojiHeads {
 
   async #load(player, key) {
     const cached = await fetch(`/heads/${key}.png`).catch(() => null);
-    if (cached?.ok) return this.#remember(key, await cached.blob());
+    if (cached?.status === 200) return this.#remember(key, await cached.blob());
     const blob = await this.#render(player);
-    await window.habs.saveHead(key, await blob.arrayBuffer());
+    await window.rondelle.saveHead(key, await blob.arrayBuffer());
     return this.#remember(key, blob);
   }
 
@@ -134,22 +142,34 @@ export class EmojiHeads {
     return canvas.convertToBlob({ type: 'image/png' });
   }
 
-  // "Créer les têtes du roster" : toute l'équipe, puis export PNG dans Images/Habs Régie/...
-  async generateRoster({ nhl, team, onProgress }) {
+  // Effectif actuel d'une équipe (API LNH), gardé 30 minutes
+  async roster(nhl, team) {
+    this.rosters ??= new Map();
+    const hit = this.rosters.get(team);
+    if (hit && Date.now() - hit.at < 30 * 60_000) return hit.players;
     const res = await nhl.api(`/v1/roster/${team}/current`);
-    if (!res?.ok) throw new Error(res?.error ?? `roster indisponible (${res?.status ?? 'réseau'})`);
+    if (!res?.ok) throw new Error(res?.error ?? `effectif indisponible (${res?.status ?? 'réseau'})`);
     const players = rosterPlayers(res.data, team);
-    if (!players.length) throw new Error('roster vide');
+    if (!players.length) throw new Error('effectif vide');
+    this.rosters.set(team, { at: Date.now(), players });
+    return players;
+  }
+
+  // "Créer les têtes" d'une équipe : génération (une à la fois), puis export PNG dans
+  // Images/Rondelle/Têtes <équipe> <saison>
+  async generateRoster({ nhl, team, onProgress, signal, open = true }) {
+    const players = await this.roster(nhl, team);
     let done = 0;
     for (const p of players) {
+      if (signal?.aborted) throw new Error('annulé');
       await this.get(p).catch(() => {});
-      onProgress?.(++done, players.length);
+      onProgress?.(++done, players.length, p);
     }
     const files = players.map((p) => ({
       key: this.key(p),
       name: `${p.number != null ? String(p.number).padStart(2, '0') : '--'} ${p.first} ${p.last}`,
     }));
-    return window.habs.exportHeads({ folder: `Têtes ${teamLabel(team)} ${seasonLabel()}`, files });
+    return window.rondelle.exportHeads({ folder: `Têtes ${teamLabel(team)} ${seasonLabel()}`, files, open });
   }
 }
 

@@ -3,6 +3,18 @@ import { meanAbsDiff, meanLuma, scorebugSimilarity, signature } from '../shared/
 import { Emitter } from './util.js';
 
 const BUG_W = 96;
+
+function flat(gray) {
+  if (!gray?.length) return true;
+  let sum = 0;
+  let sq = 0;
+  for (const v of gray) {
+    sum += v;
+    sq += v * v;
+  }
+  const mean = sum / gray.length;
+  return Math.sqrt(Math.max(0, sq / gray.length - mean * mean)) < 6;
+}
 const BUG_H = 24;
 export const PRESENT_THRESHOLD = 0.6;
 export const ABSENT_THRESHOLD = 0.4;
@@ -75,6 +87,9 @@ export class VisionPipeline extends Emitter {
     // L'OCR ne tourne que si le tableau de score est visible
     const present = similarity != null && similarity >= PRESENT_THRESHOLD;
     if (!this.ocrEnabled || !present) return;
+    // Zone uniforme (écran noir, rien d'écrit) : inutile de lancer la lecture
+    if (msg.clock && flat(msg.clock.gray)) delete msg.clock;
+    if (msg.scoreTeam && flat(msg.scoreTeam.gray)) delete msg.scoreTeam;
     if (msg.clock) {
       this.ocr.read('clock', msg.clock).then((text) => {
         if (text == null) return;

@@ -1,28 +1,87 @@
 import { app, BrowserWindow, dialog, ipcMain, net, session, shell, webContents } from 'electron';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { APP_NAME, LEGACY_NAMES, RELEASES_API } from '../shared/brand.js';
+import { DEMO_PROFILE } from '../shared/demoProfile.js';
+import { hostOf } from '../shared/navPolicy.js';
 import { APP_ORIGIN, handleAppProtocol, registerSchemes } from './appProtocol.js';
 import { ConfigStore } from './configStore.js';
-import { hostOf } from '../shared/navPolicy.js';
+import { migrateLegacyData } from './migrate.js';
+import { OverlayController, listDisplays } from './overlay.js';
 import { EventLog, STREAM_PARTITION, cleanUserAgent, createStreamSession, guardGuest } from './streamSession.js';
+import { SystemAudio } from './systemAudio.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '../..');
 const AGENT_PRELOAD = path.join(ROOT, 'src/agent/frame-agent.cjs');
 const SHELL_PRELOAD = path.join(__dirname, 'preload-shell.cjs');
 const DEMO = process.argv.includes('--demo');
+const DEMO_OVERLAY = process.argv.includes('--overlay');
+const DEMO_START = Date.now();
 
-// Profil isolé (tests automatiques)
-if (process.env.HABS_USER_DATA) app.setPath('userData', process.env.HABS_USER_DATA);
+// Profil isolé (tests automatiques) ; sinon reprise des données de l'ancienne version
+if (process.env.RONDELLE_USER_DATA) app.setPath('userData', process.env.RONDELLE_USER_DATA);
+else {
+  try {
+    const from = migrateLegacyData({ appData: app.getPath('appData'), userData: app.getPath('userData'), legacyNames: LEGACY_NAMES });
+    if (from) console.info(`[migration] données reprises de ${from}`);
+  } catch (err) {
+    console.warn('[migration]', err.message);
+  }
+}
+
+// Une seule fenêtre Rondelle à la fois : relancer l'app ramène la fenêtre existante
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+
+// Journal (avertissements et erreurs) pour le diagnostic, tourne à 1 Mo
+const LOG_FILE = path.join(app.getPath('userData'), 'logs', 'main.log');
+function writeLog(level, args) {
+  try {
+    fsSync.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+    if (fsSync.existsSync(LOG_FILE) && fsSync.statSync(LOG_FILE).size > 1_000_000) fsSync.renameSync(LOG_FILE, `${LOG_FILE}.1`);
+    fsSync.appendFileSync(LOG_FILE, `${new Date().toISOString()} ${level} ${args.map((a) => (a instanceof Error ? a.stack : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}\n`);
+  } catch {
+    /* journal indisponible */
+  }
+}
+for (const level of ['warn', 'error']) {
+  const orig = console[level].bind(console);
+  console[level] = (...args) => {
+    writeLog(level, args);
+    orig(...args);
+  };
+}
+process.on('uncaughtException', (err) => console.error('[exception]', err));
+process.on('unhandledRejection', (err) => console.error('[promesse]', err));
 
 app.userAgentFallback = cleanUserAgent(app.userAgentFallback);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 registerSchemes();
 
-const config = new ConfigStore(app.getPath('userData'));
+// Démo : réglages en mémoire (jamais écrits), faux stream et profil de tableau tout prêts
+const config = DEMO
+  ? new ConfigStore(app.getPath('userData'), {
+      memory: true,
+      seed: {
+        onboarded: true,
+        team: 'MTL',
+        source: DEMO_OVERLAY ? 'overlay' : 'web',
+        stream: { customStreams: [{ url: `${APP_ORIGIN}/demo/stream.html?start=${DEMO_START}`, label: 'Stream démo', lang: 'fr' }] },
+        sync: { manualDelaySec: 25 },
+        vision: { profiles: [structuredClone(DEMO_PROFILE)], activeProfile: DEMO_PROFILE.id },
+        overlay: { provider: 'rds', duck: 'off' },
+        updates: { check: false },
+        ui: { logos: false }, // la démo fonctionne sans réseau : pastilles aux couleurs des équipes
+      },
+    })
+  : new ConfigStore(app.getPath('userData'));
 const navPolicy = { blockPopups: true, allowedHosts: new Set(), knownStreams: new Set() };
 const log = new EventLog();
 let win = null;
@@ -30,9 +89,19 @@ let adblock = null;
 let media = null;
 let guestId = null;
 let headsDir = null;
+let overlay = null;
+const systemAudio = new SystemAudio({
+  dir: path.join(app.getPath('userData'), 'helpers'),
+  ownPids: () => app.getAppMetrics().map((m) => m.pid),
+});
 
 function notify(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+// Les réglages changent : toutes les fenêtres (panneau, surcouche) sont prévenues
+function broadcastConfig(data) {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed() && w.webContents.getURL().startsWith(APP_ORIGIN)) w.webContents.send('config-changed', data);
 }
 
 function applyPrefs(cfg) {
@@ -40,7 +109,36 @@ function applyPrefs(cfg) {
   navPolicy.allowedHosts.add(hostOf(cfg.stream.homeUrl));
   for (const h of cfg.stream.allowedSites) if (h) navPolicy.allowedHosts.add(String(h).replace(/^www\./, ''));
   adblock?.configure({ enabled: cfg.stream.adblock && !DEMO, exceptions: cfg.stream.adblockExceptions });
-  if (win) win.setAlwaysOnTop(!!cfg.stream.alwaysOnTop, 'floating');
+  if (win) win.setAlwaysOnTop(!!cfg.stream.alwaysOnTop && cfg.source !== 'overlay', 'floating');
+  overlay?.sync(cfg);
+}
+
+function setConfig(next) {
+  const data = config.set(next);
+  applyPrefs(data);
+  broadcastConfig(data);
+  return data;
+}
+
+// Taille et position de la fenêtre retrouvées au lancement suivant
+const STATE_FILE = path.join(app.getPath('userData'), 'window.json');
+function loadWindowState() {
+  try {
+    const s = JSON.parse(fsSync.readFileSync(STATE_FILE, 'utf8'));
+    if (s.width >= 900 && s.height >= 520) return s;
+  } catch {
+    /* premier lancement */
+  }
+  return { width: 1440, height: 860 };
+}
+
+function saveWindowState() {
+  if (!win || win.isDestroyed() || DEMO) return;
+  try {
+    fsSync.writeFileSync(STATE_FILE, JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() }));
+  } catch {
+    /* sans importance */
+  }
 }
 
 async function createWindow() {
@@ -49,15 +147,18 @@ async function createWindow() {
   adblock = stream.adblock;
   media = stream.media;
   ({ headsDir } = handleAppProtocol(ROOT, stream.ses, { userData: app.getPath('userData') }));
-  applyPrefs(cfg);
 
+  const state = loadWindowState();
   win = new BrowserWindow({
-    width: 1440,
-    height: 860,
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
     minWidth: 900,
     minHeight: 520,
-    backgroundColor: '#07090d',
-    title: 'Habs Régie',
+    backgroundColor: '#0a0c10',
+    title: APP_NAME,
+    icon: path.join(ROOT, 'assets/icon.png'),
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -70,7 +171,21 @@ async function createWindow() {
       backgroundThrottling: false,
     },
   });
+  if (state.maximized) win.maximize();
   win.once('ready-to-show', () => win.show());
+  win.on('close', saveWindowState);
+
+  overlay = new OverlayController({
+    origin: APP_ORIGIN,
+    preload: SHELL_PRELOAD,
+    demo: DEMO,
+    demoStart: DEMO_START,
+    getConfig: () => config.data,
+    setConfig,
+    mainWindow: () => (win && !win.isDestroyed() ? win : null),
+    systemAudio,
+    log,
+  });
   applyPrefs(cfg);
 
   // Seule la <webview> du stream est autorisée, avec notre agent et une config verrouillée
@@ -95,23 +210,40 @@ async function createWindow() {
     guardGuest(guest, { policy: navPolicy, notify, log });
   });
 
-  // L'interface elle-même ne navigue jamais ailleurs
-  win.webContents.on('will-navigate', (e) => e.preventDefault());
+  // L'interface elle-même ne navigue jamais ailleurs (rechargement permis : changement de mode)
+  win.webContents.on('will-navigate', (e, legacyUrl) => {
+    const url = e.url ?? legacyUrl ?? '';
+    if (!url.startsWith(`${APP_ORIGIN}/index.html`)) e.preventDefault();
+  });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.on('closed', () => {
+    win = null;
+    overlay?.stop();
+  });
 
   await win.loadURL(`${APP_ORIGIN}/index.html${DEMO ? '?demo=1' : ''}`);
 }
 
+app.on('second-instance', () => {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
+
 // --- IPC -------------------------------------------------------------------
 
-ipcMain.handle('app:info', () => ({ demo: DEMO, version: app.getVersion(), platform: process.platform }));
+ipcMain.handle('app:info', () => ({
+  name: APP_NAME,
+  demo: DEMO,
+  demoStart: DEMO_START,
+  version: app.getVersion(),
+  platform: process.platform,
+  duckSupported: systemAudio.supported,
+}));
 
 ipcMain.handle('config:get', () => config.data);
-ipcMain.handle('config:set', (_e, next) => {
-  const data = config.set(next);
-  applyPrefs(data);
-  return data;
-});
+ipcMain.handle('config:set', (_e, next) => setConfig(next));
 
 ipcMain.handle('nhl:get', async (_e, p) => {
   if (typeof p !== 'string' || !/^\/v1\/[\w\-/.?=&]+$/.test(p)) throw new Error(`Chemin refusé : ${p}`);
@@ -146,15 +278,18 @@ ipcMain.handle('nav:allow', (_e, { hosts = [], streams = [] } = {}) => {
   return [...navPolicy.allowedHosts];
 });
 
-// Ouvrir le stream dans le navigateur de l'ordinateur (dernier recours)
+// Ouvrir une page dans le navigateur de l'ordinateur
 ipcMain.handle('open-external', (_e, url) => {
   if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
   shell.openExternal(url);
   return true;
 });
 
+ipcMain.handle('open-data-folder', () => shell.openPath(app.getPath('userData')));
+
 // Têtes émoji : cache interne + export en PNG dans le dossier Images de l'utilisateur
 const HEAD_KEY = /^[\w-]{1,80}$/;
+const headsRoot = () => path.join(app.getPath('pictures'), APP_NAME);
 ipcMain.handle('heads:save', async (_e, key, png) => {
   if (!headsDir || typeof key !== 'string' || !HEAD_KEY.test(key) || !(png instanceof ArrayBuffer || ArrayBuffer.isView(png))) return false;
   await fs.mkdir(headsDir, { recursive: true });
@@ -165,7 +300,7 @@ ipcMain.handle('heads:save', async (_e, key, png) => {
 
 ipcMain.handle('heads:export', async (_e, { folder, files = [], open = true } = {}) => {
   const name = String(folder ?? 'Têtes').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').slice(0, 80) || 'Têtes';
-  const dest = path.join(app.getPath('pictures'), 'Habs Régie', name);
+  const dest = path.join(headsRoot(), name);
   await fs.mkdir(dest, { recursive: true });
   let copied = 0;
   for (const f of files) {
@@ -182,17 +317,33 @@ ipcMain.handle('heads:export', async (_e, { folder, files = [], open = true } = 
   return { folder: dest, copied };
 });
 
-// Diagnostic : ce que le process principal a vu (pop-ups, redirections, pubs bloquées)
-ipcMain.handle('diag:main', () => {
+// Ouvre le dossier des têtes (ou un de ses sous-dossiers, jamais un chemin arbitraire)
+ipcMain.handle('heads:open-folder', async (_e, folder) => {
+  const root = headsRoot();
+  const target = typeof folder === 'string' && path.resolve(folder).startsWith(root) ? folder : root;
+  await fs.mkdir(target, { recursive: true });
+  return shell.openPath(target);
+});
+
+// Diagnostic : ce que le process principal a vu (pop-ups, redirections, pubs bloquées, flux)
+ipcMain.handle('diag:main', async () => {
   const guest = guestId ? webContents.fromId(guestId) : null;
   const top = hostOf(guest?.getURL?.() ?? '');
+  let logTail = [];
+  try {
+    logTail = (await fs.readFile(LOG_FILE, 'utf8')).trim().split('\n').slice(-40);
+  } catch {
+    /* pas de journal */
+  }
   return {
     versions: { app: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome, os: `${process.platform} ${process.arch}` },
     page: guest?.getURL?.() ?? null,
     events: log.items.slice(-60),
     adblock: adblock?.report(top) ?? null,
     media: media?.report() ?? null,
+    overlay: overlay ? { running: overlay.running, status: overlay.status, duck: { supported: systemAudio.supported, factor: systemAudio.factor, error: systemAudio.lastError } } : null,
     allowedHosts: [...navPolicy.allowedHosts].slice(0, 80),
+    journal: logTail,
   };
 });
 
@@ -200,6 +351,35 @@ ipcMain.handle('diag:main', () => {
 ipcMain.handle('adblock:temporary', (_e, host, on) => {
   adblock?.setTemporary(host, !!on);
   return true;
+});
+
+ipcMain.handle('displays:list', () => listDisplays());
+
+// Mode surcouche : baisse du son des autres programmes (Windows)
+ipcMain.handle('audio:duck', async (_e, { db = 0, rampMs = 900 } = {}) => {
+  const o = config.data.overlay;
+  const res = await systemAudio.duck({ db, rampMs, mode: o.duck, apps: o.apps });
+  if (res && !res.ok && res.error) log.add('duck-error', { error: res.error });
+  return res;
+});
+
+// Mises à jour : dernière version publiée sur GitHub (aucune donnée envoyée)
+function newer(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map(Number);
+  const pb = String(b).replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+}
+ipcMain.handle('updates:check', async () => {
+  try {
+    const res = await net.fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10_000) });
+    if (res.status === 404) return { ok: true, current: app.getVersion(), latest: null, newer: false };
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const r = await res.json();
+    return { ok: true, current: app.getVersion(), latest: r.tag_name, url: r.html_url, newer: newer(r.tag_name, app.getVersion()) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 ipcMain.handle('win:fullscreen', (_e, value) => {
@@ -244,6 +424,10 @@ ipcMain.handle('capture:guest', async (_e, id, { width = 320 } = {}) => {
 });
 
 app.whenReady().then(createWindow);
+
+app.on('will-quit', () => {
+  systemAudio.restore().finally(() => systemAudio.dispose());
+});
 
 app.on('window-all-closed', async () => {
   await config.flush().catch(() => {});

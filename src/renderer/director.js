@@ -3,6 +3,7 @@ import { EventScheduler, GoalTracker } from '../shared/director-core.js';
 import { computeGameStats, formatClock, isLive, penaltyLabel, periodName, teamColor } from '../shared/nhl.js';
 import { StreamClock } from '../shared/sync.js';
 import { TensionMeter } from '../shared/tension.js';
+import { matchupColors } from '../shared/theme.js';
 import { AdShow, adShowData } from './adShow.js';
 import { ABSENT_THRESHOLD, PRESENT_THRESHOLD } from './visionPipeline.js';
 
@@ -127,6 +128,12 @@ export class Director {
       this.stats = null;
     }
     const isNew = this.game?.id !== g.id;
+    if (isNew) {
+      // Couleurs des deux équipes dans les graphiques (l'adversaire change de teinte si elles se confondent)
+      const mc = matchupColors(g.team.abbrev, g.opp.abbrev);
+      document.documentElement.style.setProperty('--c-team', mc.team);
+      document.documentElement.style.setProperty('--c-opp', mc.opp);
+    }
     const rosterChanged = isNew || this.game?.players.size !== g.players.size;
     this.game = g;
     if (isNew) this.#prefetchHeads();
@@ -283,12 +290,12 @@ export class Director {
     const player = play ? g?.players.get(play.details.scoringPlayerId) : null;
     this.goalBoostUntil = Date.now() + 8000;
     if (!cfg.regie.celebration) {
-      this.overlays.banner.show({ tag: 'But', title: player ? player.name : `But des ${g?.team?.name ?? 'vôtres'} !`, color: '#af1e2d' });
+      this.overlays.banner.show({ tag: 'But', title: player ? player.name : `But des ${g?.team?.name ?? 'vôtres'} !`, color: teamColor(g?.team?.abbrev) });
       return;
     }
     this.overlays.card.hide();
     const emojiUrl = cfg.regie.playerStyle === 'emoji' && player && this.heads ? this.heads.cachedUrl(player) : null;
-    this.overlays.celebration.start({ player, play, game: g, durationSec: cfg.regie.celebrationSec, confetti: cfg.regie.confetti, emojiUrl });
+    this.overlays.celebration.start({ player, play, game: g, durationSec: cfg.regie.celebrationSec, confetti: cfg.regie.confetti, emojiUrl, logos: cfg.ui.logos });
     this.horn.play({ hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume });
   }
 
@@ -398,27 +405,30 @@ export class Director {
 
   // ------------------------------------------------------------- Affichage
 
-  #renderGamePill() {
+  // Résumé du match pour l'interface (barre du haut, panneau de surcouche)
+  gameView() {
     const g = this.game;
     const c = this.clockInfo;
     if (!g) {
       const s = this.nhl.scheduleGame;
-      if (!s) return this.ui.setGamePill(this.nhl.lastError ? `API LNH indisponible` : 'Aucun match trouvé');
+      if (!s) return { kind: this.nhl.lastError ? 'error' : 'none', text: this.nhl.lastError ? 'API LNH indisponible' : 'Aucun match trouvé' };
       const when = new Date(s.startTimeUTC).toLocaleString('fr-CA', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
       const tv = (s.tvBroadcasts ?? []).map((b) => b.network).join(', ');
-      return this.ui.setGamePill(`${s.awayTeam?.abbrev} @ ${s.homeTeam?.abbrev} · ${when}${tv ? ` · ${tv}` : ''}`);
+      return { kind: 'scheduled', away: s.awayTeam?.abbrev, home: s.homeTeam?.abbrev, when, tv };
     }
     const s = this.goals.score;
     let when = '';
-    if (!isLive(g.state) && g.state !== 'FINAL' && g.state !== 'OFF') {
+    const live = isLive(g.state);
+    if (!live && g.state !== 'FINAL' && g.state !== 'OFF') {
       when = new Date(g.startTimeUTC).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
     } else if (c?.gt != null) {
       when = `${periodName(c.period, g.gameType)} ${formatClock(c.remaining)}`;
-    }
-    this.ui.setGamePill(
-      `<span class="score">${g.team.abbrev} ${s.team} – ${s.opp} ${g.opp.abbrev}</span><span class="muted">${when}</span>`,
-      true,
-    );
+    } else if (g.state === 'FINAL' || g.state === 'OFF') when = 'Final';
+    return { kind: 'game', team: g.team.abbrev, opp: g.opp.abbrev, score: { team: s.team, opp: s.opp }, when, live };
+  }
+
+  #renderGamePill() {
+    this.ui.setGame(this.gameView());
   }
 
   #renderSync() {

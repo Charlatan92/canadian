@@ -21,6 +21,6 @@ jobs:
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
-          name: Habs-Regie-Windows
+          name: Rondelle-Windows
           path: dist/*.exe
           if-no-files-found: error

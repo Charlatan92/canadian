@@ -6,42 +6,63 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' https: data: blob:; media-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' blob: data:; font-src 'self' data:"
     />
-    <title>Habs Régie</title>
+    <title>Rondelle</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header id="topbar">
-      <div class="brand"><span class="brand-ch">CH</span><span class="brand-name">Régie</span></div>
+      <div class="tb-brand">
+        <span class="logo-mark" aria-hidden="true"></span>
+        <span class="tb-app">Rondelle</span>
+      </div>
 
-      <div id="game-pill" class="pill" title="Score et temps tels que vus sur le stream (aucun divulgâcheur)">
+      <button id="team-chip" class="team-chip" data-tip="Équipe suivie : cliquez pour en changer">
+        <span class="team-chip-logo"></span><span class="team-chip-name"></span>
+      </button>
+
+      <div id="game-pill" class="game-pill" data-tip="Score et temps tels que vus sur votre écran (zéro divulgâcheur)">
         <span class="muted">Recherche du match…</span>
       </div>
 
-      <div class="stream-picker">
-        <button id="btn-prev" class="icon-btn" title="Stream précédent (P)">◀</button>
-        <span id="stream-health" class="dot" title="État du stream"></span>
-        <select id="stream-select" title="Streams trouvés pour le match"></select>
-        <button id="btn-next" class="icon-btn" title="Stream suivant (N)">▶</button>
-        <button id="btn-home" class="icon-btn" title="Revenir à la page OnHockey.tv">⌂</button>
-        <button id="btn-refresh-streams" class="icon-btn" title="Relire la liste des streams">⟳</button>
+      <div class="tb-sep"></div>
+
+      <div id="source-web" class="source-group">
+        <button id="btn-prev" class="icon-btn" data-tip="Stream précédent" data-kbd="P" aria-label="Stream précédent"><svg class="ic"><use href="/vendor/icons.svg#i-chevron-left"></use></svg></button>
+        <label class="stream-select" data-tip="Streams trouvés pour le match">
+          <span id="stream-health" class="status-dot"></span>
+          <select id="stream-select" aria-label="Choisir un stream"></select>
+          <svg class="ic"><use href="/vendor/icons.svg#i-chevron-down"></use></svg>
+        </label>
+        <button id="btn-next" class="icon-btn" data-tip="Stream suivant" data-kbd="N" aria-label="Stream suivant"><svg class="ic"><use href="/vendor/icons.svg#i-chevron-right"></use></svg></button>
+        <button id="btn-home" class="icon-btn" data-tip="Revenir à la page des matchs" aria-label="Page des matchs"><svg class="ic"><use href="/vendor/icons.svg#i-house"></use></svg></button>
+        <button id="btn-refresh-streams" class="icon-btn" data-tip="Relire la liste des streams" aria-label="Relire la liste"><svg class="ic"><use href="/vendor/icons.svg#i-refresh-cw"></use></svg></button>
+      </div>
+
+      <div id="source-overlay" class="source-group" hidden>
+        <span class="status-chip"><span id="ov-dot" class="status-dot warn pulse"></span><span id="ov-label">Surcouche</span></span>
       </div>
 
       <div class="spacer"></div>
 
-      <button id="mode-pill" class="pill pill-btn" title="Cliquer pour forcer le mode (M)">
-        <span class="mode-dot"></span><span id="mode-label">—</span>
+      <button id="mode-pill" class="status-chip" data-tip="Ce que la régie voit : match ou pause publicitaire. Cliquez pour forcer un mode." data-kbd="M">
+        <span class="mode-dot status-dot unknown"></span><span id="mode-label">Pub : ?</span>
       </button>
-      <div id="sync-pill" class="pill" title="Synchronisation entre le stream et l'API LNH">Sync —</div>
+      <div id="sync-pill" class="status-chip" data-tip="Synchronisation avec le direct">
+        <svg class="ic"><use href="/vendor/icons.svg#i-timer"></use></svg><span>Sync —</span>
+      </div>
 
-      <button id="btn-theatre" class="tool-btn" title="Mode théâtre (T)">Théâtre</button>
-      <button id="btn-fullscreen" class="tool-btn" title="Plein écran (F)">Plein écran</button>
-      <button id="btn-calibrate" class="tool-btn" title="Calibrer le tableau de score (C)">Calibrer</button>
-      <button id="btn-settings" class="tool-btn" title="Réglages (S)">Réglages</button>
+      <div class="tb-sep"></div>
+
+      <button id="btn-theatre" class="icon-btn" data-tip="Mode théâtre : le lecteur seul, plein cadre" data-kbd="T" aria-label="Mode théâtre"><svg class="ic"><use href="/vendor/icons.svg#i-rectangle-horizontal"></use></svg></button>
+      <button id="btn-calibrate" class="icon-btn" data-tip="Calibrer le tableau de score du diffuseur" data-kbd="C" aria-label="Calibrer"><svg class="ic"><use href="/vendor/icons.svg#i-scan"></use></svg></button>
+      <button id="btn-fullscreen" class="icon-btn" data-tip="Plein écran" data-kbd="F" aria-label="Plein écran"><svg class="ic"><use href="/vendor/icons.svg#i-expand"></use></svg></button>
+      <button id="btn-settings" class="icon-btn" data-tip="Réglages" data-kbd="S" aria-label="Réglages"><svg class="ic"><use href="/vendor/icons.svg#i-settings"></use></svg></button>
     </header>
 
     <main id="stage">
       <webview id="stream" partition="persist:stream" src="about:blank" allowpopups></webview>
-      <div id="hotzone" title="Afficher la barre"></div>
+      <section id="control" class="control" hidden></section>
+      <div id="hotzone"></div>
 
       <div id="overlay" aria-live="polite">
         <div id="fx-tension"></div>
@@ -49,13 +70,15 @@
         <div id="player-card" class="player-card"></div>
         <div id="adshow" class="adshow"></div>
         <div id="celebration" class="celebration"><canvas id="confetti"></canvas></div>
-        <div id="toasts"></div>
         <pre id="hud" class="hud"></pre>
       </div>
     </main>
 
-    <aside id="settings" class="drawer" hidden></aside>
+    <div id="toasts" aria-live="polite"></div>
+    <div id="settings" class="dialog-backdrop" hidden></div>
+    <div id="welcome" class="dialog-backdrop" hidden></div>
     <div id="calibration" class="modal" hidden></div>
+    <div id="tooltip" class="tooltip" role="tooltip"></div>
 
     <script type="module" src="app.js"></script>
   </body>
