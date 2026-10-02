@@ -12,7 +12,11 @@ import path from 'node:path';
 const outDir = process.argv[2] ?? 'test-output';
 fs.mkdirSync(outDir, { recursive: true });
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rondelle-overlay-'));
-const app = await electron.launch({ args: ['.', '--demo', '--overlay', '--no-sandbox'], env: { ...process.env, RONDELLE_USER_DATA: userData } });
+const exe = process.env.RONDELLE_E2E_EXE; // exécutable empaqueté (fichiers lus dans app.asar)
+const app = await electron.launch({
+  ...(exe ? { executablePath: exe, args: ['--demo', '--overlay', '--no-sandbox'] } : { args: ['.', '--demo', '--overlay', '--no-sandbox'] }),
+  env: { ...process.env, RONDELLE_USER_DATA: userData },
+});
 const errors = [];
 const watch = (p) => {
   p.on('pageerror', (e) => errors.push(`${p.url()} ${e}`));

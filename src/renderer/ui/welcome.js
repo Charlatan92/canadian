@@ -87,7 +87,7 @@ export class Welcome {
           <span class="muted">${this.step + 1} / ${steps.length}</span>
           <button class="btn btn-primary btn-lg" data-act="${this.step === steps.length - 1 ? 'finish' : 'next'}">${this.step === steps.length - 1 ? 'Commencer' : 'Continuer'}${icon('arrow-right', 'ic-sm')}</button>
         </footer>`;
-    this.el.querySelector('[data-act="next"], [data-act="finish"]')?.focus();
+    box.focus();
   }
 
   async #onClick(e) {

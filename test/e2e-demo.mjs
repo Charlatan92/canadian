@@ -89,7 +89,7 @@ const checks = {
   'vidéo détectée': any((l) => l.primary),
   'horloge lue (OCR)': any((l) => l.source === 'ocr'),
   'carte joueur affichée': any((l) => l.card),
-  'but du CH célébré': any((l) => l.celebrating),
+  'but de l'équipe suivie célébré': any((l) => l.celebrating),
   'pause pub détectée': any((l) => l.adState === 'break'),
   'émission pendant la pub': any((l) => l.adshow),
   'son baissé pendant la pub': any((l) => l.adState === 'break' && l.audioDb < -10),
