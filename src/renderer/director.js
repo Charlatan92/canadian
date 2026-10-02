@@ -1,4 +1,4 @@
-import { AdDetector } from '../shared/adDetector.js';
+import { AdDetector, breakContext } from '../shared/adDetector.js';
 import { EventScheduler, GoalTracker } from '../shared/director-core.js';
 import { computeGameStats, formatClock, isLive, penaltyLabel, periodName, teamColor } from '../shared/nhl.js';
 import { StreamClock } from '../shared/sync.js';
@@ -17,7 +17,7 @@ export class Director {
     this.clock = new StreamClock({ mode: cfg.sync.mode, manualDelaySec: cfg.sync.manualDelaySec });
     this.scheduler = new EventScheduler();
     this.goals = new GoalTracker();
-    this.ad = new AdDetector({ confirmSec: cfg.ads.confirmSec, resumeSec: cfg.ads.resumeSec, onThreshold: PRESENT_THRESHOLD, offThreshold: ABSENT_THRESHOLD });
+    this.ad = new AdDetector(this.#adOptions(cfg));
     this.tension = new TensionMeter();
     this.adShow = new AdShow(document.getElementById('adshow'), {
       getData: () => adShowData(this.game, this.clockInfo?.gt, this.goals.score, this.clockInfo),
@@ -29,6 +29,7 @@ export class Director {
     this.clockInfo = null;
     this.adState = 'unknown';
     this.forced = null;
+    this.showSkipped = false; // émission de stats masquée par l'utilisateur pour la pause en cours
     this.goalBoostUntil = 0;
     this.lastDb = null;
     this.lastAudioMode = null;
@@ -77,7 +78,7 @@ export class Director {
   applyConfig() {
     const cfg = this.getConfig();
     this.clock.configure({ mode: cfg.sync.mode, manualDelaySec: cfg.sync.manualDelaySec });
-    this.ad.configure({ confirmSec: cfg.ads.confirmSec, resumeSec: cfg.ads.resumeSec, onThreshold: PRESENT_THRESHOLD, offThreshold: ABSENT_THRESHOLD });
+    this.ad.configure(this.#adOptions(cfg));
     this.#placeOverlays();
     this.vision.ocrEnabled = cfg.vision.ocr;
     this.vision.setProfile(this.activeProfile());
@@ -86,6 +87,10 @@ export class Director {
     this.lastDb = null; // renvoie la config audio
     this.#prefetchHeads();
     if (this.adState === 'break' && (!cfg.ads.enabled || !cfg.ads.showStats)) this.adShow.stop();
+  }
+
+  #adOptions(cfg) {
+    return { mode: cfg.ads.mode, confirmSec: cfg.ads.confirmSec, resumeSec: cfg.ads.resumeSec, onThreshold: PRESENT_THRESHOLD, offThreshold: ABSENT_THRESHOLD };
   }
 
   // Bandeau et carte joueur évitent le tableau de score du diffuseur
@@ -107,14 +112,14 @@ export class Director {
     const cfg = this.getConfig();
     const p = this.activeProfile();
     const regions = {};
-    if (p) for (const k of ['scorebug', 'clock', 'scoreTeam', 'scoreOpp']) if (p[k]) regions[k] = p[k];
+    if (p) for (const k of ['scorebug', 'clock', 'scoreTeam', 'scoreOpp', 'logo']) if (p[k]) regions[k] = p[k];
     this.bridge.setVision({ fps: cfg.vision.fps, ocrHz: cfg.vision.ocr ? cfg.vision.ocrHz : 0, regions });
   }
 
   async #saveProfile(profile) {
     const cfg = structuredClone(this.getConfig());
     const i = cfg.vision.profiles.findIndex((p) => p.id === profile.id);
-    if (i >= 0) cfg.vision.profiles[i] = { ...cfg.vision.profiles[i], signature: profile.signature };
+    if (i >= 0) cfg.vision.profiles[i] = { ...cfg.vision.profiles[i], signature: profile.signature, logoSignature: profile.logoSignature ?? null };
     await this.saveConfig(cfg, { silent: true });
   }
 
@@ -340,7 +345,9 @@ export class Director {
   // ------------------------------------------------------------- Pubs
 
   #onMetrics(m) {
-    const r = this.ad.update(m.t, { similarity: m.similarity, black: m.black });
+    // Contexte LNH (pause télé, entracte) : seulement quand les données sont synchronisées
+    const ctx = this.game && this.clockInfo?.gt != null ? breakContext(this.scheduler.released.slice(-40)) : null;
+    const r = this.ad.update(m.t, { similarity: m.similarity, black: m.black, logo: m.logo, ice: m.ice, context: ctx?.known ? ctx : null });
     if (r.changed) this.#setAdState(r.state);
   }
 
@@ -353,6 +360,16 @@ export class Director {
     this.#setAdState(r.state);
   }
 
+  // A : on préfère regarder la pub (ou ce que la chaîne montre) : émission masquée jusqu'à la reprise
+  skipShow() {
+    if (this.adState !== 'break') return this.ui.toast("Pas de pause pub en cours : l'émission de stats n'est pas affichée");
+    this.showSkipped = !this.showSkipped;
+    if (this.showSkipped) {
+      this.adShow.stop();
+      this.ui.toast('Émission masquée jusqu\'à la fin de la pause (A pour la remettre)');
+    } else if (this.getConfig().ads.showStats) this.adShow.start();
+  }
+
   #setAdState(state) {
     const prev = this.adState;
     this.adState = state;
@@ -360,9 +377,11 @@ export class Director {
     const cfg = this.getConfig();
     if (state === 'break' && cfg.ads.enabled) {
       this.overlays.card.hide();
-      if (cfg.ads.showStats) this.adShow.start();
-    } else if (state === 'game') {
+      if (cfg.ads.showStats && !this.showSkipped) this.adShow.start();
+    } else if (state !== 'break') {
+      // Retour au jeu, ou la chaîne reprend l'antenne (ralenti, analyse, studio) : on lui rend la parole
       this.adShow.stop();
+      if (state === 'game') this.showSkipped = false;
     }
     this.ui.setMode(state);
   }
@@ -395,8 +414,8 @@ export class Director {
     const language = cfg.voice.language !== 'auto' ? cfg.voice.language : lang === 'fr' ? 'fr' : 'en';
     this.voice.update({
       enabled: cfg.voice.enabled && cfg.regie.playerSource === 'voice+api' && cfg.regie.playerCard,
-      // seulement pendant le jeu : ni pendant les pubs, ni avant que le stream joue
-      active: !!this.game && this.streams.playedOnce && !inBreak,
+      // seulement pendant le jeu : ni pendant les pubs ou les ralentis, ni avant que le stream joue
+      active: !!this.game && this.streams.playedOnce && !inBreak && this.adState !== 'show',
       model: cfg.voice.model,
       device: cfg.voice.device,
       language,
@@ -452,7 +471,8 @@ export class Director {
         `stream   ${this.streams.health.level} · ${this.streams.health.reason}`,
         `vidéo    ${st ? `${st.vw}x${st.vh} t=${f(st.currentTime, 1)} bloquée=${f(st.stuckSec, 0)}s` : '—'}  (${((now - this.lastStatusAt) / 1000).toFixed(0)}s)`,
         `vision   ${f(m.fps, 1)} img/s · luma ${f(m.luma, 0)} · Δ ${f(m.diff)} · figée ${f(m.frozenSec, 0)}s`,
-        `tableau  similarité ${f(m.similarity)} · état ${this.adState}${this.forced != null ? ' (forcé)' : ''} · absent ${f(this.ad.absentForSec(now), 0)}s`,
+        `tableau  similarité ${f(m.similarity)} · logo ${f(m.logo)} · glace ${f(m.ice)} · état ${this.adState}${this.forced != null ? ' (forcé)' : ''} · absent ${f(this.ad.absentForSec(now), 0)}s`,
+        `pub      ${this.ad.reason || '—'}`,
         `ocr      « ${m.clockText ?? ''} »`,
         `sync     gt=${f(c.gt, 1)} ${c.period ?? '-'}e ${formatClock(c.remaining)} · ${c.source ?? '—'} · retard ${f(c.delaySec, 1)}s`,
         `api      ${this.game ? `${this.game.state} ${this.game.period}e ${formatClock(this.game.clock.secondsRemaining)} ${this.game.clock.running ? '▶' : '❚❚'}` : '—'} · en attente ${this.scheduler.pending.length}`,

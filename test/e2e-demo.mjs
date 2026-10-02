@@ -27,10 +27,21 @@ win.on('pageerror', (e) => {
   console.log('[pageerror]', e);
 });
 
+const info = await win.evaluate(() => window.rondelle.info()).catch(() => null);
+// NOLOGO=1 : sans logo de chaîne calibré (la régie se fie à la glace et aux données LNH)
+if (process.env.NOLOGO) {
+  await win.waitForFunction(() => !!window.__rondelle?.getConfig, null, { timeout: 20_000 });
+  await win.evaluate(async () => {
+    const c = structuredClone(window.__rondelle.getConfig());
+    for (const p of c.vision.profiles) delete p.logo;
+    await window.rondelle.setConfig(c);
+  });
+}
+const demoStart = info?.demoStart ?? null;
 const t0 = Date.now();
 const since = () => (Date.now() - t0) / 1000;
 const state = () =>
-  win.evaluate(() => {
+  win.evaluate((demoStart) => {
     const h = window.__rondelle;
     if (!h) return null;
     const d = h.director;
@@ -52,8 +63,10 @@ const state = () =>
       card: document.querySelector('#player-card.show .pc-last')?.textContent ?? null,
       banner: document.querySelector('#banner.show .bn-title')?.textContent ?? null,
       adshow: document.querySelector('#adshow.show .scene h2')?.textContent ?? null,
+      reason: d.ad.reason,
+      s: demoStart ? ((Date.now() - demoStart) / 1000) % 210 : null, // temps du scénario (src/demo/timeline.js)
     };
-  });
+  }, demoStart);
 
 const log = [];
 const shots = new Map([
@@ -89,16 +102,19 @@ const checks = {
   'vidéo détectée': any((l) => l.primary),
   'horloge lue (OCR)': any((l) => l.source === 'ocr'),
   'carte joueur affichée': any((l) => l.card),
-  'but de l'équipe suivie célébré': any((l) => l.celebrating),
+  "but de l'équipe suivie célébré": any((l) => l.celebrating),
   'pause pub détectée': any((l) => l.adState === 'break'),
   'émission pendant la pub': any((l) => l.adshow),
   'son baissé pendant la pub': any((l) => l.adState === 'break' && l.audioDb < -10),
+  // Ralentis de la chaîne (scénario : 26–40 s et 154–165 s) : ni émission, ni son baissé
+  'ralenti reconnu (pas une pub)': any((l) => l.adState === 'show'),
+  "pas d'émission pendant les ralentis": !log.some((l) => l?.s != null && ((l.s > 28 && l.s < 39) || (l.s > 156 && l.s < 164)) && (l.adState === 'break' || l.adshow)),
   'retour au match': log.some((l, i) => l?.adState === 'game' && log.slice(0, i).some((p) => p?.adState === 'break')),
   'but adverse annoncé': any((l) => /Matthews/.test(l.banner ?? '')),
 };
 let ok = true;
 for (const [name, pass] of Object.entries(checks)) {
-  if (duration < 160 && /adverse|retour|pub|émission|son/.test(name)) continue;
+  if (duration < 160 && /adverse|retour|pub|émission|son|ralenti/.test(name)) continue;
   console.log(`${pass ? 'OK ' : 'ÉCHEC'} ${name}`);
   ok &&= pass;
 }

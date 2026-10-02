@@ -57,7 +57,7 @@ function gameHtml(v) {
     ${v.when ? `<span class="gp-when">${esc(v.when)}</span>` : ''}`;
 }
 
-const MODE_LABELS = { game: 'En jeu', break: 'Pause pub', unknown: 'Pub : ?' };
+const MODE_LABELS = { game: 'En jeu', show: 'Ralenti · analyse', break: 'Pause pub', unknown: 'Pub : ?' };
 let lastGameKey = '';
 const ui = {
   demo,
@@ -294,6 +294,10 @@ function handleKey(key) {
     case 'm':
       if (MODE === 'overlay') window.rondelle.overlayCommand({ type: 'cycle-force' });
       else regie.director.cycleForce();
+      break;
+    case 'a':
+      if (MODE === 'overlay') window.rondelle.overlayCommand({ type: 'skip-show' });
+      else regie.director.skipShow();
       break;
     case 'g':
       settings.actions.testGoal();

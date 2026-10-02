@@ -112,6 +112,21 @@ function drawScorebug(s) {
   ctx.textBaseline = 'alphabetic';
 }
 
+function drawChannelLogo() {
+  const x = 1126;
+  const y = 22;
+  ctx.fillStyle = 'rgba(12, 18, 44, 0.92)';
+  ctx.fillRect(x, y, 130, 40);
+  ctx.fillStyle = '#e04959';
+  ctx.fillRect(x, y, 8, 40);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 20px Arial, sans-serif';
+  ctx.fillText('TV DÉMO', x + 69, y + 21);
+  ctx.textBaseline = 'alphabetic';
+}
+
 function drawAd(t) {
   const g = ctx.createLinearGradient(0, 0, W, H);
   const hue = (t * 40) % 360;
@@ -160,10 +175,8 @@ function frame() {
       drawScorebug(s);
     }
   }
-  ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font = 'bold 16px Arial, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.fillText('DÉMO', W - 24, 34);
+  // Logo de la chaîne : présent pendant le jeu et ses ralentis, absent pendant les pubs (comme à la télé)
+  if (seg !== 'ad' && !blackAt(s)) drawChannelLogo();
   audioUpdate(s, seg);
   requestAnimationFrame(frame);
 }

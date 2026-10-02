@@ -17,7 +17,7 @@ import {
   teamKeywords,
 } from '../src/shared/nhl.js';
 import { StreamClock } from '../src/shared/sync.js';
-import { AdDetector } from '../src/shared/adDetector.js';
+import { AdDetector, breakContext, iceFraction } from '../src/shared/adDetector.js';
 import { TensionMeter } from '../src/shared/tension.js';
 import { parseClockText, parseScoreText, Stabilizer } from '../src/shared/ocr.js';
 import { detectLanguage, rankStreams, pickNextStream, matchesTeam } from '../src/shared/streams.js';
@@ -172,7 +172,7 @@ test('sync : mode manuel', () => {
 });
 
 test('pubs : hystérésis et confirmation', () => {
-  const d = new AdDetector({ confirmSec: 5, resumeSec: 1.5 });
+  const d = new AdDetector({ confirmSec: 5, resumeSec: 1.5, mode: 'simple' });
   let t = 0;
   const step = (sim, extra = {}) => {
     t += 500;
@@ -193,14 +193,14 @@ test('pubs : hystérésis et confirmation', () => {
 });
 
 test('pubs : écran noir = confirmation rapide, reprise après un but = patience', () => {
-  const d = new AdDetector({ confirmSec: 8 });
+  const d = new AdDetector({ confirmSec: 8, mode: 'simple' });
   d.update(0, { similarity: 0.9 });
   d.update(2000, { similarity: 0.9 });
   d.update(2500, { similarity: 0.1, black: true });
   d.update(5000, { similarity: 0.1 });
   assert.equal(d.state, 'break');
 
-  const r = new AdDetector({ confirmSec: 5 });
+  const r = new AdDetector({ confirmSec: 5, mode: 'simple' });
   r.update(0, { similarity: 0.9 });
   r.update(2000, { similarity: 0.9 });
   r.hintReplay(60_000);
@@ -446,4 +446,72 @@ test('vision : préparation OCR (texte clair inversé en noir)', () => {
   const px = (x, y) => data[(y * width + x) * 4];
   assert.equal(px(8 + 2 * 2, 8 + 1 * 2), 0, 'texte -> noir');
   assert.equal(px(8, 8), 255, 'fond -> blanc');
+});
+
+test('pubs : ralentis et analyses de la chaîne ne sont pas des pubs', () => {
+  // Sans indice : tableau absent avec de la glace à l'écran = ralenti
+  const d = new AdDetector({ confirmSec: 5, longSec: 40 });
+  d.update(0, { similarity: 0.9 });
+  d.update(2000, { similarity: 0.9 });
+  for (let t = 2500; t <= 60_000; t += 500) d.update(t, { similarity: 0.1, ice: 0.7, context: { tvTimeout: false } });
+  assert.equal(d.state, 'show', 'un ralenti, même long, reste du contenu de la chaîne');
+
+  // Studio d'analyse (pas de glace) pendant un arrêt de jeu normal : patience
+  const a = new AdDetector({ confirmSec: 5, longSec: 40 });
+  a.update(0, { similarity: 0.9 });
+  a.update(2000, { similarity: 0.9 });
+  a.update(3000, { similarity: 0.1, ice: 0.05, context: { tvTimeout: false } });
+  a.update(20_000, { similarity: 0.1, ice: 0.05, context: { tvTimeout: false } });
+  assert.equal(a.state, 'show');
+  a.update(44_000, { similarity: 0.1, ice: 0.05, context: { tvTimeout: false } });
+  assert.equal(a.state, 'break', 'sans tableau depuis longtemps : pub');
+
+  // Entracte sans logo calibré : l'émission de la chaîne, pas de pub
+  const e = new AdDetector({ confirmSec: 5 });
+  e.update(0, { similarity: 0.9 });
+  e.update(2000, { similarity: 0.9 });
+  for (let t = 2500; t <= 300_000; t += 1000) e.update(t, { similarity: 0.1, ice: 0, context: { intermission: true } });
+  assert.equal(e.state, 'show');
+});
+
+test('pubs : pause télé de la LNH et logo de la chaîne = vraie pub', () => {
+  const d = new AdDetector({ confirmSec: 5 });
+  d.update(0, { similarity: 0.9 });
+  d.update(2000, { similarity: 0.9 });
+  const ctx = { tvTimeout: true };
+  d.update(3000, { similarity: 0.1, ice: 0.6, context: ctx }); // ralenti avant la pub
+  d.update(6000, { similarity: 0.1, ice: 0.6, context: ctx });
+  assert.equal(d.state, 'show');
+  d.update(9000, { similarity: 0.1, ice: 0.05, context: ctx });
+  d.update(10_000, { similarity: 0.1, ice: 0.0, context: ctx });
+  d.update(11_000, { similarity: 0.1, ice: 0.0, context: ctx });
+  assert.equal(d.state, 'break');
+  for (let t = 12_000; t <= 14_000; t += 500) d.update(t, { similarity: 0.9, context: ctx });
+  assert.equal(d.state, 'game');
+
+  // Logo calibré : présent = ralenti/analyse, absent = pub, quoi qu'il y ait à l'écran
+  const l = new AdDetector({ confirmSec: 5 });
+  l.update(0, { similarity: 0.9, logo: 0.9 });
+  l.update(2000, { similarity: 0.9, logo: 0.9 });
+  l.update(3000, { similarity: 0.1, logo: 0.9, ice: 0 });
+  l.update(30_000, { similarity: 0.1, logo: 0.9, ice: 0 });
+  assert.equal(l.state, 'show');
+  l.update(31_000, { similarity: 0.1, logo: 0.1 });
+  l.update(34_500, { similarity: 0.1, logo: 0.1 });
+  assert.equal(l.state, 'break');
+  l.update(36_000, { similarity: 0.1, logo: 0.9 });
+  l.update(38_000, { similarity: 0.1, logo: 0.9 });
+  assert.equal(l.state, 'show', 'retour de la chaîne avant la reprise du jeu : on rend la parole');
+});
+
+test('pubs : contexte LNH et part de glace', () => {
+  const play = (type, details = {}) => ({ type, details });
+  assert.deepEqual(breakContext([play('faceoff'), play('shot-on-goal'), play('stoppage', { reason: 'icing', secondaryReason: 'tv-timeout' })]), { tvTimeout: true, intermission: false, known: true });
+  assert.equal(breakContext([play('stoppage', { secondaryReason: 'tv-timeout' }), play('faceoff')]).tvTimeout, false, 'la reprise efface la pause télé');
+  assert.equal(breakContext([play('period-end')]).intermission, true);
+  const w = 8;
+  const h = 6;
+  const ice = new Uint8Array(w * h).fill(220);
+  assert.ok(iceFraction(ice, w, h) > 0.9);
+  assert.equal(iceFraction(new Uint8Array(w * h).fill(60), w, h), 0);
 });

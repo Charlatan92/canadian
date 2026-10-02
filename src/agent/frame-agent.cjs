@@ -586,6 +586,20 @@ function softClipCurve() {
 // 4. Vision : vignettes en niveaux de gris envoyées à l'interface
 // ---------------------------------------------------------------------------
 
+// Part de glace à l'écran (copie de iceFractionRGBA, src/shared/adDetector.js : l'agent ne peut rien importer)
+function iceFractionRGBA(d, w, h) {
+  let n = 0;
+  let ice = 0;
+  for (let y = Math.floor(h / 3); y < h; y++) {
+    for (let x = 0, i = y * w * 4; x < w; x++, i += 4) {
+      n++;
+      const lo = Math.min(d[i], d[i + 1], d[i + 2]);
+      if (lo >= 150 && Math.max(d[i], d[i + 1], d[i + 2]) - lo <= 45 && d[i + 2] >= d[i] - 8) ice++;
+    }
+  }
+  return n ? ice / n : null;
+}
+
 const vision = {
   cfg: null,
   timer: null,
@@ -610,7 +624,7 @@ const vision = {
     return this.canvases.get(key);
   },
 
-  grab(v, rect, w, h) {
+  grab(v, rect, w, h, stats) {
     const { ctx } = this.canvas(w, h);
     if (rect) {
       const [x, y, rw, rh] = rect;
@@ -621,6 +635,7 @@ const vision = {
     const d = ctx.getImageData(0, 0, w, h).data;
     const g = new Uint8Array(w * h);
     for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+    if (stats) stats.ice = iceFractionRGBA(d, w, h);
     return g;
   },
 
@@ -638,9 +653,10 @@ const vision = {
     try {
       const now = Date.now();
       const frame = { type: 'frame', t: now, vw: v.videoWidth, vh: v.videoHeight };
-      frame.thumb = this.grab(v, null, 64, 36);
+      frame.thumb = this.grab(v, null, 64, 36, frame);
       const r = cfg.regions || {};
       if (r.scorebug) frame.bug = this.grab(v, r.scorebug, 96, 24);
+      if (r.logo) frame.logo = this.grab(v, r.logo, 48, 24);
       if (cfg.ocrHz && now - this.lastOcr >= 1000 / cfg.ocrHz) {
         this.lastOcr = now;
         if (r.clock) frame.clock = this.grabText(v, r.clock);

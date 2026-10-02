@@ -160,12 +160,14 @@ export class OverlayController {
     const vh = 720 * scale;
     const ox = (b.width - vw) / 2;
     const oy = (b.height - vh) / 2;
-    for (const k of ['scorebug', 'clock', 'scoreTeam', 'scoreOpp']) {
+    for (const k of ['scorebug', 'clock', 'scoreTeam', 'scoreOpp', 'logo']) {
+      if (!p[k]) continue;
       const [x, y, w, h] = p[k];
       p[k] = [(ox + x * vw) / b.width, (oy + y * vh) / b.height, (w * vw) / b.width, (h * vh) / b.height];
     }
     p.fitted = true;
     p.signature = null;
+    p.logoSignature = null;
     this.setConfig(cfg);
   }
 
@@ -204,6 +206,7 @@ export class OverlayController {
         this.setConfig(cfg);
       },
       'CommandOrControl+Alt+M': () => this.command({ type: 'cycle-force' }),
+      'CommandOrControl+Alt+A': () => this.command({ type: 'skip-show' }),
       'CommandOrControl+Alt+G': () => this.command({ type: 'test-goal' }),
       'CommandOrControl+Alt+R': () => {
         const w = this.mainWindow();

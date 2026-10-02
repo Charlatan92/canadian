@@ -43,6 +43,7 @@ export const DEFAULT_CONFIG = {
 
   ads: {
     enabled: true,
+    mode: 'smart', // 'smart' : vraies pubs seulement (pas les ralentis ni les analyses de la chaîne) | 'simple'
     confirmSec: 5, // tableau de score absent depuis X s -> pause pub
     resumeSec: 1.5, // tableau de score revenu depuis X s -> retour au match
     showStats: true,
@@ -392,13 +393,24 @@ export const SETTINGS_SECTIONS = [
     id: 'ads',
     title: 'Pauses pub',
     icon: 'megaphone',
-    intro: 'Détection des pubs (le tableau de score du diffuseur disparaît) et émission de stats par-dessus.',
+    intro: 'Détection des vraies pauses publicitaires et émission de stats par-dessus. Les ralentis, analyses et émissions de la chaîne restent visibles.',
     groups: [
       {
         title: 'Détection',
         items: [
           { path: 'ads.enabled', type: 'bool', label: 'Détecter les pauses publicitaires', help: 'Repose sur le tableau de score du diffuseur, à calibrer une fois (touche C). Les reprises après un but le cachent aussi : la régie attend alors plus longtemps.' },
-          { path: 'ads.confirmSec', type: 'range', min: 1, max: 30, step: 1, format: sec, label: 'Délai de confirmation', when: (c) => c.ads.enabled, help: 'Le tableau doit avoir disparu depuis ce délai pour déclarer une pub.' },
+          {
+            path: 'ads.mode',
+            type: 'segmented',
+            label: 'Quand déclarer une pub ?',
+            when: (c) => c.ads.enabled,
+            help: "Intelligent : le tableau de score disparaît aussi pendant les ralentis, les analyses et l'entracte de la chaîne, que vous voulez voir. La régie ne déclare une pub que sur des indices sûrs : logo de la chaîne absent (calibrez-le, touche C, étape 5), pause télé annoncée par la LNH, écran noir de transition, pas de glace à l'écran, ou absence prolongée. Simple : dès que le tableau disparaît.",
+            options: [
+              { value: 'smart', label: 'Intelligent' },
+              { value: 'simple', label: 'Dès que le tableau disparaît' },
+            ],
+          },
+          { path: 'ads.confirmSec', type: 'range', min: 1, max: 30, step: 1, format: sec, label: 'Délai de confirmation', when: (c) => c.ads.enabled, help: 'Le tableau doit avoir disparu depuis ce délai (avec un indice de pub en mode intelligent) pour déclarer une pub.' },
           { path: 'ads.resumeSec', type: 'range', min: 0.5, max: 10, step: 0.5, format: sec, label: 'Délai de retour au jeu', when: (c) => c.ads.enabled, help: 'Le tableau doit être revenu depuis ce délai pour déclarer la reprise.' },
         ],
       },

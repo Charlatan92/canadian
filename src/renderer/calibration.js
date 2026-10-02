@@ -7,7 +7,9 @@ const STEPS = [
   { key: 'clock', label: '2. Horloge', color: '#06d6a0', help: 'Encadrez seulement le temps restant (ex. 12:34). Il sert à synchroniser la régie avec votre stream, sans divulgâcheur.' },
   { key: 'scoreTeam', label: '3. Score de votre équipe', color: '#ef476f', help: 'Encadrez le chiffre du score de l\'équipe suivie (facultatif : confirme les buts directement à l\'écran).' },
   { key: 'scoreOpp', label: '4. Score adverse', color: '#118ab2', help: 'Encadrez le chiffre du score de l\'adversaire (facultatif).' },
+  { key: 'logo', label: '5. Logo de la chaîne', color: '#c77dff', help: 'Encadrez le logo de la chaîne s\'il reste dans un coin de l\'image (facultatif, mais recommandé) : présent pendant ses ralentis et analyses, absent pendant les pubs. Les stats ne s\'affichent alors que pendant les vraies pubs.' },
 ];
+const REGION_KEYS = STEPS.map((s) => s.key);
 
 // Fenêtre de calibration : on dessine les zones du tableau de score sur une image du stream.
 export class Calibration {
@@ -31,7 +33,7 @@ export class Calibration {
   async show() {
     const cfg = this.getConfig();
     const current = cfg.vision.profiles.find((p) => p.id === cfg.vision.activeProfile);
-    this.rects = current ? { scorebug: current.scorebug, clock: current.clock, scoreTeam: current.scoreTeam, scoreOpp: current.scoreOpp } : {};
+    this.rects = current ? Object.fromEntries(REGION_KEYS.filter((k) => current[k]).map((k) => [k, current[k]])) : {};
     this.editing = current?.id ?? null;
     this.step = 0;
     this.el.hidden = false;
@@ -110,7 +112,7 @@ export class Calibration {
     const key = STEPS[this.step].key;
     this.rects[key] = rect.map((v) => Math.round(v * 10000) / 10000);
     this.#draw();
-    if (key !== 'scorebug') this.#testOcr(key);
+    if (key !== 'scorebug' && key !== 'logo') this.#testOcr(key);
     if (this.step < STEPS.length - 1) {
       this.step++;
       this.#renderSteps();
@@ -187,7 +189,7 @@ export class Calibration {
     const cfg = structuredClone(this.getConfig());
     const name = this.el.querySelector('#cal-name').value.trim() || 'Profil';
     const id = this.editing ?? `p${Date.now().toString(36)}`;
-    const profile = { id, name, ...this.rects, signature: null };
+    const profile = { id, name, ...this.rects, signature: null, logoSignature: null };
     const i = cfg.vision.profiles.findIndex((p) => p.id === id);
     if (i >= 0) cfg.vision.profiles[i] = profile;
     else cfg.vision.profiles.push(profile);
@@ -195,7 +197,7 @@ export class Calibration {
     await this.saveConfig(cfg);
     this.onSaved(profile);
     this.close();
-    this.toast(`Profil « ${name} » enregistré. La référence du tableau est apprise sur l'image actuelle.`);
+    this.toast(`Profil « ${name} » enregistré. La référence du tableau${this.rects.logo ? ' et du logo' : ''} est apprise sur l'image actuelle.`);
   }
 
   #onClick(e) {

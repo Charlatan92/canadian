@@ -1,4 +1,5 @@
 import { providerOf } from '../../shared/providers.js';
+import { iceFractionRGBA } from '../../shared/adDetector.js';
 import { Emitter } from '../util.js';
 
 // Mode surcouche : la vidéo joue dans le navigateur (ou l'appli du fournisseur télé) et Rondelle
@@ -222,7 +223,7 @@ export class ScreenBridge extends Emitter {
     return this.canvases.get(key);
   }
 
-  #grab(rect, w, h) {
+  #grab(rect, w, h, stats) {
     const v = this.video;
     const { ctx } = this.#canvas(w, h);
     if (rect) {
@@ -232,6 +233,7 @@ export class ScreenBridge extends Emitter {
     const d = ctx.getImageData(0, 0, w, h).data;
     const g = new Uint8Array(w * h);
     for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+    if (stats) stats.ice = iceFractionRGBA(d, w, h);
     return g;
   }
 
@@ -248,7 +250,7 @@ export class ScreenBridge extends Emitter {
     if (!v || !cfg || !this.capturing || v.readyState < 2 || !v.videoWidth) return;
     const now = Date.now();
     const frame = { type: 'frame', t: now, vw: v.videoWidth, vh: v.videoHeight };
-    frame.thumb = this.#grab(null, 64, 36);
+    frame.thumb = this.#grab(null, 64, 36, frame);
     let sum = 0;
     for (const x of frame.thumb) sum += x;
     this.luma = sum / frame.thumb.length;
@@ -256,6 +258,7 @@ export class ScreenBridge extends Emitter {
     else this.blackSince = null;
     const r = cfg.regions || {};
     if (r.scorebug) frame.bug = this.#grab(r.scorebug, 96, 24);
+    if (r.logo) frame.logo = this.#grab(r.logo, 48, 24);
     if (cfg.ocrHz && now - this.lastOcr >= 1000 / cfg.ocrHz) {
       this.lastOcr = now;
       if (r.clock) frame.clock = this.#grabText(r.clock);

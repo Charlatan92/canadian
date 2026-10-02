@@ -10,6 +10,7 @@ export const KEYS = [
   ['T', 'Mode théâtre'],
   ['N / P', 'Stream suivant / précédent'],
   ['M', 'Pub : auto → forcée → match forcé'],
+  ['A', 'Masquer l\'émission de stats jusqu\'à la fin de la pause'],
   ['+ / −', 'Retard du stream (mode manuel)'],
   ['C', 'Calibrer le tableau de score'],
   ['G', 'Tester la célébration'],
@@ -24,6 +25,7 @@ export const KEYS = [
 export const GLOBAL_KEYS = [
   ['Ctrl+Alt+H', 'Masquer / afficher les graphiques'],
   ['Ctrl+Alt+M', 'Pub : auto → forcée → match forcé'],
+  ['Ctrl+Alt+A', 'Masquer l\'émission de stats jusqu\'à la fin de la pause'],
   ['Ctrl+Alt+G', 'Tester la célébration'],
   ['Ctrl+Alt+R', 'Afficher le panneau Rondelle'],
 ];

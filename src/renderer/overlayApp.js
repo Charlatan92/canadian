@@ -70,6 +70,9 @@ window.rondelle.on('overlay-cmd', (cmd) => {
     case 'cycle-force':
       director.cycleForce();
       break;
+    case 'skip-show':
+      director.skipShow();
+      break;
     case 'learn-reference':
       director.applyConfig();
       vision.learnReference();
