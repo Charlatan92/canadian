@@ -515,3 +515,92 @@ test('pubs : contexte LNH et part de glace', () => {
   assert.ok(iceFraction(ice, w, h) > 0.9);
   assert.equal(iceFraction(new Uint8Array(w * h).fill(60), w, h), 0);
 });
+
+// ------------------------------------------------------------------ Analyses et anecdotes
+import { goalAnalysis, goalSituation, parseRss, playerFacts, pregameTotals, pressAbout, pressForShow, seasonSeries, shotDistanceM } from '../src/shared/insights.js';
+
+test('analyse d\'un but : type de tir, distance, situation, contexte', () => {
+  const players = new Map([
+    [1, { id: 1, name: 'Cole Caufield', last: 'Caufield', teamId: 8 }],
+    [2, { id: 2, name: 'Nick Suzuki', last: 'Suzuki', teamId: 8 }],
+    [3, { id: 3, name: 'Lane Hutson', last: 'Hutson', teamId: 8 }],
+    [9, { id: 9, name: 'Morgan Rielly', last: 'Rielly', teamId: 10 }],
+  ]);
+  const game = { home: { id: 8, abbrev: 'MTL', name: 'Canadiens' }, away: { id: 10, abbrev: 'TOR', name: 'Maple Leafs' }, players, plays: [] };
+  const giveaway = { id: 10, type: 'giveaway', period: 2, gt: 1500, teamId: 10, details: { playerId: 9 } };
+  const goal = { id: 11, type: 'goal', period: 2, gt: 1506, teamId: 8, situation: '1451', details: { scoringPlayerId: 1, assist1PlayerId: 2, assist2PlayerId: 3, shotType: 'wrist', xCoord: 80, yCoord: -7, homeScore: 2, awayScore: 1, scoringPlayerTotal: 11 } };
+  game.plays = [giveaway, goal];
+  const a = goalAnalysis(game, goal);
+  assert.equal(a.title, 'But de Cole Caufield');
+  assert.match(a.text, /lancer du poignet/);
+  assert.match(a.text, /enclave \(3 m\)|devant le filet|enclave/);
+  assert.match(a.text, /avantage numérique/);
+  assert.match(a.text, /revirement de Rielly/);
+  assert.match(a.text, /servi par Nick Suzuki et Lane Hutson/);
+  assert.match(a.text, /donne les devants aux Canadiens/);
+  assert.match(a.text, /11e but de la saison/);
+  assert.ok(a.chips.includes('Avantage numérique') || a.chips.some((c) => /avantage/i.test(c)));
+  assert.equal(goalSituation('1551', true).key, 'ev');
+  assert.equal(goalSituation('0651', false).key, 'extra');
+  assert.equal(goalSituation('1560', false).key, 'en');
+  assert.ok(Math.abs(shotDistanceM(89, 0)) < 0.01);
+});
+
+test('fiche joueur : le match en cours est retiré, seul ce qui a été vu est ajouté', () => {
+  const landing = {
+    firstName: { default: 'Cole' },
+    lastName: { default: 'Caufield' },
+    position: 'R',
+    birthDate: '2001-01-02',
+    birthCity: { default: 'Mosinee' },
+    birthCountry: 'USA',
+    draftDetails: { year: 2019, teamAbbrev: 'MTL', round: 1, pickInRound: 15, overallPick: 15 },
+    heightInCentimeters: 173,
+    weightInKilograms: 74,
+    shootsCatches: 'R',
+    featuredStats: { regularSeason: { subSeason: { gamesPlayed: 21, goals: 12, assists: 6, points: 18 } } },
+    careerTotals: { regularSeason: { gamesPlayed: 330, goals: 99, assists: 90, points: 189 } },
+    // Le match en cours (id 77) figure déjà dans la fiche, avec 2 buts : ce serait un divulgâcheur
+    last5Games: [
+      { gameId: 77, goals: 2, assists: 0, points: 2 },
+      { gameId: 76, goals: 1, assists: 1, points: 2 },
+      { gameId: 75, goals: 0, assists: 1, points: 1 },
+      { gameId: 74, goals: 1, assists: 0, points: 1 },
+      { gameId: 73, goals: 0, assists: 1, points: 1 },
+    ],
+  };
+  const pre = pregameTotals(landing, 77);
+  assert.equal(pre.career.goals, 97);
+  assert.equal(pre.season.goals, 10);
+  assert.equal(pre.last5.length, 4);
+  const now = Date.parse('2026-10-02T20:00:00Z');
+  const before = playerFacts(landing, { gameId: 77, seen: { g: 0, a1: 0, a2: 0 }, now });
+  assert.ok(before.facts.some((f) => /25 ans, originaire de Mosinee \(États-Unis\)/.test(f)));
+  assert.ok(before.facts.some((f) => /1er tour \(15e au total\) en 2019 par les Canadiens/.test(f)), before.facts.join(' | '));
+  assert.ok(before.facts.some((f) => /À 3 buts de son 100e but/.test(f)), before.facts.join(' | '));
+  assert.ok(before.facts.some((f) => /chacun de ses 4 derniers matchs/.test(f)));
+  assert.ok(!before.facts.some((f) => /99 buts|12 buts/.test(f)), 'aucun total ne doit inclure le match en cours');
+  const after = playerFacts(landing, { gameId: 77, seen: { g: 3, a1: 0, a2: 0 }, now });
+  assert.match(after.facts[0], /cap des 100 buts/);
+});
+
+test('revue de presse : flux RSS, seulement avant la mise en jeu', () => {
+  const xml = `<rss><channel>
+    <item><title>Caufield prêt pour le duel contre Toronto - La Presse</title><link>https://example.com/a</link><pubDate>Fri, 02 Oct 2026 15:00:00 GMT</pubDate><source url="https://lapresse.ca">La Presse</source></item>
+    <item><title>Le CH l&#39;emporte 4-2 - RDS</title><link>https://example.com/b</link><pubDate>Fri, 02 Oct 2026 23:59:00 GMT</pubDate><source url="https://rds.ca">RDS</source></item>
+    <item><title><![CDATA[Hutson & Guhle : la relève]]></title><link>https://example.com/c</link><pubDate>Thu, 01 Oct 2026 12:00:00 GMT</pubDate><source url="https://tva.ca">TVA Sports</source></item>
+    <item><title>Caufield prêt pour le duel contre Toronto ce soir</title><pubDate>Fri, 02 Oct 2026 14:00:00 GMT</pubDate><source>Autre</source></item>
+  </channel></rss>`;
+  const items = parseRss(xml);
+  assert.equal(items.length, 4);
+  assert.equal(items[0].title, 'Caufield prêt pour le duel contre Toronto');
+  assert.equal(items[0].source, 'La Presse');
+  assert.equal(items[1].title, "Le CH l'emporte 4-2");
+  assert.equal(items[2].title, 'Hutson & Guhle : la relève');
+  const start = Date.parse('2026-10-02T23:00:00Z');
+  const shown = pressForShow(items, { before: start });
+  assert.deepEqual(shown.map((i) => i.source), ['La Presse', 'TVA Sports'], 'pas d\'article d\'après la mise en jeu, pas de doublon');
+  assert.equal(pressAbout(items, 'Hutson', { before: start })[0]?.source, 'TVA Sports');
+  assert.equal(pressAbout(items, 'Suzuki', { before: start }).length, 0);
+  assert.equal(seasonSeries({ seasonSeries: [{ id: 1, gameState: 'OFF', awayTeam: { abbrev: 'TOR', score: 2 }, homeTeam: { abbrev: 'MTL', score: 3 } }, { id: 2, gameState: 'LIVE' }] }, 2).length, 1);
+});

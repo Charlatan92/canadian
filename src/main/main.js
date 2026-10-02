@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { APP_NAME, LEGACY_NAMES, RELEASES_API } from '../shared/brand.js';
 import { DEMO_PROFILE } from '../shared/demoProfile.js';
+import { parseRss } from '../shared/insights.js';
 import { hostOf } from '../shared/navPolicy.js';
 import { APP_ORIGIN, handleAppProtocol, registerSchemes } from './appProtocol.js';
 import { ConfigStore } from './configStore.js';
@@ -254,6 +255,23 @@ ipcMain.handle('nhl:get', async (_e, p) => {
     });
     if (!res.ok) return { ok: false, status: res.status };
     return { ok: true, data: await res.json() };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// Revue de presse : titres de Google Actualités (RSS public). Le filtrage « avant la mise en jeu »
+// se fait dans l'interface, qui connaît l'heure du match.
+ipcMain.handle('news:get', async (_e, { q, lang = 'fr' } = {}) => {
+  if (typeof q !== 'string' || !q.trim() || q.length > 200) throw new Error('Requête refusée');
+  const l = lang === 'en' ? { hl: 'en-CA', ceid: 'CA:en' } : { hl: 'fr-CA', ceid: 'CA:fr' };
+  try {
+    const res = await net.fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=${l.hl}&gl=CA&ceid=${l.ceid}`, {
+      headers: { accept: 'application/rss+xml, application/xml' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return { ok: false, status: res.status };
+    return { ok: true, items: parseRss((await res.text()).slice(0, 2_000_000)).slice(0, 40) };
   } catch (err) {
     return { ok: false, error: err.message };
   }

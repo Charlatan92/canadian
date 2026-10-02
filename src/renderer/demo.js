@@ -1,4 +1,4 @@
-import { buildClubStats, buildLanding, buildPbp, buildRoster, buildSchedule } from '/demo/timeline.js';
+import { buildClubStats, buildLanding, buildNews, buildPbp, buildRightRail, buildRoster, buildSchedule } from '/demo/timeline.js';
 
 // Fausse API LNH du mode démo, calée sur le faux stream (même scénario, même horloge).
 export function createDemoApi(start) {
@@ -9,10 +9,16 @@ export function createDemoApi(start) {
     if (roster) return { ok: true, data: buildRoster(roster[1]) };
     const club = path.match(/\/club-stats\/([A-Z]{3})\//);
     if (club) return { ok: true, data: buildClubStats(club[1]) };
+    if (path.includes('/right-rail')) return { ok: true, data: buildRightRail(start) };
     const player = path.match(/\/player\/(\d+)\//);
     if (player) return { ok: true, data: buildLanding(Number(player[1])) };
     return { ok: false, status: 404 };
   };
+}
+
+// Fausse revue de presse (articles fictifs, publiés avant la mise en jeu de la démo)
+export function createDemoNews(start) {
+  return async () => ({ ok: true, items: buildNews(start) });
 }
 
 export { DEMO_PROFILE } from '../shared/demoProfile.js';

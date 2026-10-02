@@ -1,10 +1,12 @@
-import { computeGameStats, formatClock, momentumSeries, periodName, periodStart, shotMap, topPerformers } from '../shared/nhl.js';
+import { goalAnalysis, playerFacts, pregameTotals, pressAbout, pressForShow, pressQuery, seasonSeries, timeAgo } from '../shared/insights.js';
+import { TEAMS, computeGameStats, formatClock, momentumSeries, periodName, periodStart, shotMap, teamLabel, topPerformers } from '../shared/nhl.js';
 import { matchupColors } from '../shared/theme.js';
 import { esc, initials, photoHtml } from './util.js';
 
 // "Émission" de la régie pendant les pauses publicitaires : une suite de séquences animées
-// (chiffres du match, carte des tirs, momentum, joueur en vedette...) qui recouvre la pub.
-// Tout est calculé à partir de ce que le stream a déjà montré : aucun divulgâcheur.
+// (chiffres du match, analyse des buts, joueurs des deux équipes, anecdotes, revue de presse...)
+// qui recouvre la pub. Tout est calculé à partir de ce que le stream a déjà montré, les fiches des
+// joueurs sont ramenées à « avant ce match » et la presse s'arrête à la mise en jeu : aucun divulgâcheur.
 
 // Couleurs des deux équipes (accent lisible sur fond sombre), mises à jour à chaque séquence
 let RED = '#e5484d'; // équipe suivie
@@ -20,11 +22,14 @@ export class AdShow {
     this.active = false;
     this.sceneIndex = 0;
     this.spotlight = 0;
+    this.factsIndex = 0;
+    this.goalIndex = 0;
   }
 
   async start() {
     if (this.active) return;
     this.active = true;
+    this.gen = (this.gen ?? 0) + 1;
     this.sceneIndex = 0;
     const cfg = this.getConfig();
     this.el.style.setProperty('--adshow-opacity', cfg.ads.showOpacity);
@@ -37,7 +42,7 @@ export class AdShow {
       <div class="as-scene"></div>
       <div class="as-foot"><div class="as-dots"></div><div class="as-progress"><i></i></div></div>`;
     this.el.classList.add('show');
-    await this.#next();
+    await this.#next(this.gen);
   }
 
   stop() {
@@ -47,12 +52,14 @@ export class AdShow {
     this.el.innerHTML = '';
   }
 
-  async #next() {
-    if (!this.active) return;
+  // gen : une séquence encore en préparation (requêtes) quand la pause se termine puis reprend
+  // ne doit pas lancer une deuxième boucle
+  async #next(gen) {
+    if (!this.active || gen !== this.gen) return;
     const cfg = this.getConfig();
     const data = this.getData();
     if (data.colors) ({ team: RED, opp: BLUE } = data.colors);
-    const builders = [sceneCompare, sceneShotMap, sceneMomentum, sceneStar, sceneSpotlight, sceneGoalies, sceneGoals];
+    const builders = SCENES.filter((sc) => !sc.when || sc.when(cfg.ads)).map((sc) => sc.build);
     let html = null;
     let tries = 0;
     let index = this.sceneIndex;
@@ -65,7 +72,7 @@ export class AdShow {
       index++;
       tries++;
     }
-    if (!this.active) return;
+    if (!this.active || gen !== this.gen) return;
     this.sceneIndex = index;
     html ??= sceneIdle(data);
     const scene = this.el.querySelector('.as-scene');
@@ -79,7 +86,7 @@ export class AdShow {
     bar.style.animation = 'none';
     void bar.offsetWidth;
     bar.style.animation = `progress ${cfg.ads.sceneSec}s linear both`;
-    this.timer = setTimeout(() => this.#next(), cfg.ads.sceneSec * 1000);
+    this.timer = setTimeout(() => this.#next(gen), cfg.ads.sceneSec * 1000);
   }
 }
 
@@ -129,8 +136,8 @@ function sceneCompare({ game, stats }) {
     </div>`;
 }
 
-function rinkSvg(inner) {
-  return `<svg viewBox="-101 -44 202 88" role="img" aria-label="Patinoire">
+function rinkSvg(inner, viewBox = '-101 -44 202 88') {
+  return `<svg viewBox="${viewBox}" role="img" aria-label="Patinoire">
     <rect x="-100" y="-42.5" width="200" height="85" rx="28" fill="#121a26" stroke="#3a475c" stroke-width="0.6"/>
     <line x1="0" y1="-42.5" x2="0" y2="42.5" stroke="#7a2a33" stroke-width="0.8"/>
     <line x1="-25" y1="-42.5" x2="-25" y2="42.5" stroke="#2c3f7a" stroke-width="0.8"/>
@@ -210,6 +217,13 @@ function sceneMomentum({ game, gt }) {
     </svg></div>`;
 }
 
+// Cadre photo aux couleurs de l'équipe du joueur (équipe suivie ou adversaire)
+function phHtml(p, color = null) {
+  const style = color ? ` style="background:radial-gradient(circle at 50% 35%, color-mix(in srgb, ${color} 75%, #fff 15%), ${color} 55%, #0b0f16)"` : '';
+  const inner = p.headshot ? photoHtml(p.headshot, initials(p)) : p.number != null && p.number !== '' ? `<div class="num">${esc(p.number)}</div>` : photoHtml(null, initials(p));
+  return `<div class="ph"${style}>${inner}</div>`;
+}
+
 function tiles(list) {
   return `<div class="tiles">${list.map(([k, n]) => `<div class="tile"><div class="k">${esc(k)}</div><div class="n">${esc(n)}</div></div>`).join('')}</div>`;
 }
@@ -218,18 +232,17 @@ function seasonLine(club, id) {
   return club?.skaters?.find((s) => s.playerId === id) ?? null;
 }
 
-function last5Html(landing) {
-  const games = landing?.last5Games;
+function last5Html(games, color = RED) {
   if (!games?.length) return '';
   const max = Math.max(3, ...games.map((g) => g.points ?? 0));
-  return `<div class="legend" style="margin-top:6px">Forme récente (points, 5 derniers matchs)</div>
-    <svg viewBox="0 0 300 80" style="width:300px;height:80px" role="img" aria-label="Forme récente">
+  return `<div class="legend" style="margin-top:6px">Forme récente (points, ${games.length} derniers matchs avant celui-ci)</div>
+    <svg viewBox="0 -14 300 94" style="width:300px;height:94px" role="img" aria-label="Forme récente">
       ${games
         .slice()
         .reverse()
         .map((g, i) => {
           const h = ((g.points ?? 0) / max) * 56;
-          return `<rect x="${i * 58 + 8}" y="${62 - h}" width="24" height="${Math.max(h, 1)}" rx="4" fill="${RED}"/>
+          return `<rect x="${i * 58 + 8}" y="${62 - h}" width="24" height="${Math.max(h, 1)}" rx="4" fill="${color}"/>
             <text x="${i * 58 + 20}" y="${58 - h}" fill="#f2f4f8" font-size="12" text-anchor="middle">${g.points ?? 0}</text>
             <text x="${i * 58 + 20}" y="77" fill="#7d8899" font-size="10" text-anchor="middle">${esc(g.opponentAbbrev ?? '')}</text>`;
         })
@@ -237,21 +250,25 @@ function last5Html(landing) {
     </svg>`;
 }
 
-async function sceneStar({ game, stats }) {
+// Joueur du match jusqu'ici, pour l'équipe suivie ou pour l'adversaire
+async function sceneStar({ game, stats }, side = 'team') {
   if (!game || !stats) return null;
-  const [top] = topPerformers(game, stats, game.team.id, 1);
+  const club = side === 'team' ? game.team : game.opp;
+  const [top] = topPerformers(game, stats, club.id, 1);
   if (!top || top.score <= 0.05) return null;
   const p = top.player;
   const s = top.stats;
-  const [club, landing] = await Promise.all([this.nhl.clubStats(game.team.abbrev), withTimeout(this.nhl.playerLanding(p.id), 1500)]);
-  const season = seasonLine(club, p.id);
+  const landing = await withTimeout(this.nhl.playerLanding(p.id), 1500);
+  const pre = pregameTotals(landing, game.id);
+  const season = pre.season;
   const fo = s.fow + s.fol;
+  const color = side === 'team' ? RED : BLUE;
   return `
-    <div class="feature">
-      <div class="ph">${p.headshot ? photoHtml(p.headshot, initials(p)) : `<div class="num">${esc(p.number ?? '')}</div>`}</div>
+    <div class="feature" style="--feature-accent:${color}">
+      ${phHtml(p, side === 'opp' ? color : null)}
       <div>
-        <h2>Joueur du match (jusqu'ici)</h2>
-        <p class="lede">${esc(p.first)} ${esc(p.last)} · #${esc(p.number ?? '')} · selon l'indice d'impact de la régie</p>
+        <h2>${side === 'team' ? "Joueur du match (jusqu'ici)" : `Chez les ${esc(club.name)}`}</h2>
+        <p class="lede">${esc(p.first)} ${esc(p.last)} · #${esc(p.number ?? '')} · ${side === 'team' ? "selon l'indice d'impact de la régie" : "le plus dangereux de l'adversaire jusqu'ici"}</p>
         ${tiles([
           ['Buts', s.g],
           ['Aides', s.a1 + s.a2],
@@ -260,43 +277,49 @@ async function sceneStar({ game, stats }) {
           ['Tirs bloqués', s.blk],
           ...(fo >= 4 ? [['Mises en jeu', `${Math.round((100 * s.fow) / fo)} %`]] : []),
         ])}
-        ${season ? `<div class="legend">Saison : ${season.gamesPlayed} PJ · ${season.goals} B · ${season.assists} A · ${season.points} PTS · ${season.plusMinus > 0 ? '+' : ''}${season.plusMinus}</div>` : ''}
-        ${last5Html(landing)}
+        ${season?.gamesPlayed ? `<div class="legend">Saison avant ce match : ${season.gamesPlayed} PJ · ${season.goals ?? 0} B · ${season.assists ?? 0} A · ${season.points ?? 0} PTS${season.plusMinus != null ? ` · ${season.plusMinus > 0 ? '+' : ''}${season.plusMinus}` : ''}</div>` : ''}
+        ${last5Html(pre.last5, color)}
       </div>
     </div>`;
 }
 
-async function sceneSpotlight({ game }) {
-  const abbrev = game?.team?.abbrev ?? this.getConfig().team;
+// Sous la loupe : un des meilleurs pointeurs de la saison, en alternant les deux équipes
+async function sceneSpotlight({ game }, sides) {
+  const turn = this.spotlight++;
+  const oppTurn = sides.includes('opp') && game && (!sides.includes('team') || turn % 2 === 1);
+  const abbrev = oppTurn ? game.opp.abbrev : (game?.team?.abbrev ?? this.getConfig().team);
   const club = await this.nhl.clubStats(abbrev);
   const skaters = (club?.skaters ?? []).filter((s) => s.gamesPlayed > 0).sort((a, b) => b.points - a.points);
   if (!skaters.length) return null;
-  const s = skaters[this.spotlight++ % Math.min(5, skaters.length)];
-  const landing = await withTimeout(this.nhl.playerLanding(s.playerId), 1500);
-  const first = s.firstName?.default ?? '';
-  const last = s.lastName?.default ?? '';
+  const line = skaters[Math.floor(turn / (sides.length || 1)) % Math.min(5, skaters.length)];
+  const landing = await withTimeout(this.nhl.playerLanding(line.playerId), 1500);
+  // Fiche ramenée à « avant ce match » si possible (la fiche de club peut déjà compter ce soir)
+  const pre = game ? pregameTotals(landing, game.id) : null;
+  const s = pre?.season?.gamesPlayed ? { ...line, ...pre.season } : line;
+  const first = line.firstName?.default ?? '';
+  const last = line.lastName?.default ?? '';
   const insights = [];
-  insights.push(`${s.points} points en ${s.gamesPlayed} matchs, soit ${(s.points / s.gamesPlayed).toFixed(2)} par match.`);
-  if (s.shots) insights.push(`Taux de réussite de ${((100 * s.goals) / s.shots).toFixed(1)} % sur ${s.shots} tirs.`);
+  insights.push(`${s.points} points en ${s.gamesPlayed} matchs, soit ${(s.points / s.gamesPlayed).toFixed(2).replace('.', ',')} par match.`);
+  if (s.shots) insights.push(`Taux de réussite de ${((100 * s.goals) / s.shots).toFixed(1).replace('.', ',')} % sur ${s.shots} tirs.`);
   if (s.powerPlayGoals) insights.push(`${s.powerPlayGoals} but${s.powerPlayGoals > 1 ? 's' : ''} en avantage numérique.`);
-  if (s.avgTimeOnIcePerGame) insights.push(`${formatToi(s.avgTimeOnIcePerGame)} de temps de glace moyen par match.`);
-  const l5 = landing?.last5Games;
+  if (line.avgTimeOnIcePerGame) insights.push(`${formatToi(line.avgTimeOnIcePerGame)} de temps de glace moyen par match.`);
+  const l5 = pre?.last5 ?? landing?.last5Games;
   if (l5?.length) {
     const pts = l5.reduce((n, g) => n + (g.points ?? 0), 0);
-    insights.push(pts >= 5 ? `En feu : ${pts} points à ses 5 derniers matchs.` : `${pts} point${pts > 1 ? 's' : ''} à ses 5 derniers matchs.`);
+    insights.push(pts >= 5 ? `En feu : ${pts} points à ses ${l5.length} derniers matchs.` : `${pts} point${pts > 1 ? 's' : ''} à ses ${l5.length} derniers matchs.`);
   }
   return `
-    <div class="feature">
-      <div class="ph">${photoHtml(s.headshot, `${first[0] ?? ''}${last[0] ?? ''}`)}</div>
+    <div class="feature" style="--feature-accent:${oppTurn ? BLUE : RED}">
+      ${phHtml({ headshot: line.headshot, first, last, number: line.sweaterNumber }, oppTurn ? BLUE : null)}
       <div>
-        <h2>Sous la loupe : ${esc(last)}</h2>
-        <p class="lede">${esc(first)} ${esc(last)} · saison en cours</p>
+        <h2>${oppTurn ? 'À surveiller' : 'Sous la loupe'} : ${esc(last)}</h2>
+        <p class="lede">${esc(first)} ${esc(last)} · ${esc(teamLabel(abbrev))} · saison avant ce match</p>
         ${tiles([
           ['Matchs', s.gamesPlayed],
           ['Buts', s.goals],
           ['Aides', s.assists],
           ['Points', s.points],
-          ['+/-', `${s.plusMinus > 0 ? '+' : ''}${s.plusMinus}`],
+          ['+/-', `${s.plusMinus > 0 ? '+' : ''}${s.plusMinus ?? 0}`],
         ])}
         <ul class="insights">${insights.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
       </div>
@@ -331,12 +354,147 @@ function sceneGoals({ game, stats }) {
     const scorer = game.players.get(d.scoringPlayerId);
     const assists = [d.assist1PlayerId, d.assist2PlayerId].map((id) => game.players.get(id)?.last).filter(Boolean);
     const ours = p.teamId === game.team.id;
+    const a = goalAnalysis(game, p);
     return `<li><span class="when">${periodName(p.period, game.gameType)} · ${formatClock(p.tip)}</span>
       <span class="sw" style="background:${ours ? RED : BLUE}"></span>
-      <span><b>${esc(scorer?.name ?? 'But')}</b>${d.scoringPlayerTotal ? ` (${d.scoringPlayerTotal})` : ''} <span class="muted">${assists.length ? `aides : ${esc(assists.join(', '))}` : 'sans aide'}</span></span>
+      <span><b>${esc(scorer?.name ?? 'But')}</b>${d.scoringPlayerTotal ? ` (${d.scoringPlayerTotal})` : ''} <span class="muted">${assists.length ? `aides : ${esc(assists.join(', '))}` : 'sans aide'}</span>
+        ${a?.chips.length ? `<span class="chips">${a.chips.map((c) => `<span class="chip">${esc(c)}</span>`).join('')}</span>` : ''}</span>
       <span>${esc(ours ? game.team.abbrev : game.opp.abbrev)}</span></li>`;
   });
   return `<h2>Les buts</h2><p class="lede">Tous les buts vus jusqu'à maintenant.</p><ul class="goals-list">${items.join('')}</ul>`;
+}
+
+// Le but à la loupe : position sur la patinoire et analyse façon commentateur
+function sceneGoalStory({ game, stats }) {
+  if (!game || !stats?.goals.length) return null;
+  const goals = stats.goals;
+  // Le plus récent d'abord, puis on remonte les buts d'une pause à l'autre
+  const goal = goals[(goals.length - 1 - (this.goalIndex++ % goals.length) + goals.length) % goals.length];
+  const a = goalAnalysis(game, goal);
+  if (!a) return null;
+  const ours = a.team === game.team.abbrev;
+  const color = ours ? RED : BLUE;
+  // Patinoire normalisée : l'équipe qui marque attaque vers la droite
+  let mark = '';
+  if (a.x != null && a.y != null) {
+    const x = Math.abs(a.x);
+    const y = a.x < 0 ? -a.y : a.y;
+    mark = `<line x1="${x}" y1="${-y}" x2="89" y2="0" stroke="${color}" stroke-width="0.8" stroke-dasharray="2 1.5" opacity="0.9"/>
+      <circle cx="${x}" cy="${-y}" r="3.2" fill="${color}" stroke="#fff" stroke-width="0.8"/>
+      <circle cx="${x}" cy="${-y}" r="6" fill="none" stroke="${color}" stroke-width="0.5" opacity="0.6"><animate attributeName="r" values="3;9;3" dur="2s" repeatCount="indefinite"/></circle>`;
+  }
+  const scorer = game.players.get(goal.details.scoringPlayerId);
+  return `
+    <div class="story">
+      <div class="svgbox">${rinkSvg(mark, '-3 -44 105 88')}</div>
+      <div>
+        <h2>Le but à la loupe</h2>
+        <p class="lede">${esc(periodName(goal.period, game.gameType))} période · ${formatClock(goal.tip)} · ${esc(a.team ?? '')}</p>
+        <div class="story-who" style="--story-color:${color}">${scorer?.headshot ? photoHtml(scorer.headshot, initials(scorer)) : `<span class="num">${esc(scorer?.number ?? '')}</span>`}<b>${esc(a.title)}</b></div>
+        <p class="story-text">${esc(a.text)}</p>
+        ${a.chips.length ? `<div class="chips">${a.chips.map((c) => `<span class="chip">${esc(c)}</span>`).join('')}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+// Le saviez-vous ? Anecdotes sur un joueur de ce soir (les deux équipes, en alternance)
+async function sceneFacts({ game, stats }, sides) {
+  if (!game) return null;
+  const pool = [];
+  for (const side of sides) {
+    const club = side === 'team' ? game.team : game.opp;
+    const tops = stats ? topPerformers(game, stats, club.id, 3).map((t) => t.player) : [];
+    const others = [...game.players.values()].filter((p) => p.teamId === club.id && !tops.includes(p));
+    pool.push(...[...tops, ...others].slice(0, 6).map((p) => ({ p, side })));
+  }
+  if (!pool.length) return null;
+  // Ordre alterné : équipe, adversaire, équipe…
+  pool.sort((x, y) => pool.filter((q) => q.side === x.side).indexOf(x) - pool.filter((q) => q.side === y.side).indexOf(y) || (x.side === 'team' ? -1 : 1));
+  for (let tries = 0; tries < 3; tries++) {
+    const { p, side } = pool[this.factsIndex++ % pool.length];
+    const landing = await withTimeout(this.nhl.playerLanding(p.id), 1500);
+    const { facts } = playerFacts(landing, { gameId: game.id, seen: stats?.players.get(p.id) ?? null });
+    if (facts.length < 2) continue;
+    const color = side === 'team' ? RED : BLUE;
+    // Ce que les médias en disaient avant le match (un titre qui le nomme)
+    let quote = '';
+    const cfg = this.getConfig();
+    if (cfg.ads.press && game.startTimeUTC) {
+      const lang = cfg.stream.languagePriority?.[0] === 'en' ? 'en' : 'fr';
+      const items = await withTimeout(this.nhl.news(pressQuery({ player: p.name, lang }), lang), 1500);
+      const [it] = pressAbout(items, p.last, { before: Date.parse(game.startTimeUTC) });
+      if (it) quote = `<blockquote class="quote">« ${esc(it.title)} »<cite>${esc(it.source ?? 'Presse')} · ${esc(timeAgo(it.published, Date.parse(game.startTimeUTC)))} avant le match</cite></blockquote>`;
+    }
+    return `
+      <div class="feature" style="--feature-accent:${color}">
+        ${phHtml(p, side === 'opp' ? color : null)}
+        <div>
+          <h2>Le saviez-vous ?</h2>
+          <p class="lede"><span class="dot" style="background:${color}"></span>${esc(p.name)} · #${esc(p.number ?? '')} · ${esc(teamLabel(p.teamAbbrev))}</p>
+          <ul class="insights">${facts.slice(0, quote ? 4 : 5).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+          ${quote}
+        </div>
+      </div>`;
+  }
+  return null;
+}
+
+// Les meneurs des deux équipes, saison avant ce match + ce qu'ils ont fait ce soir (déjà vu)
+async function sceneLeaders({ game, stats }) {
+  if (!game) return null;
+  const cols = [];
+  for (const [club, color] of [[game.team, RED], [game.opp, BLUE]]) {
+    const cs = await this.nhl.clubStats(club.abbrev);
+    const top = (cs?.skaters ?? []).filter((s) => s.gamesPlayed > 0).sort((a, b) => b.points - a.points).slice(0, 3);
+    const rows = await Promise.all(
+      top.map(async (line) => {
+        const landing = await withTimeout(this.nhl.playerLanding(line.playerId), 1500);
+        const pre = pregameTotals(landing, game.id).season;
+        const s = pre?.gamesPlayed ? pre : line;
+        const tonight = stats?.players.get(line.playerId);
+        const tn = tonight ? [tonight.g && `${tonight.g} B`, tonight.a1 + tonight.a2 && `${tonight.a1 + tonight.a2} A`, tonight.sog && `${tonight.sog} tir${tonight.sog > 1 ? 's' : ''}`].filter(Boolean).join(' · ') : '';
+        return `<li><b>${esc(line.lastName?.default ?? '')}</b><span class="num">${s.goals ?? 0}-${s.assists ?? 0}-<b>${s.points ?? 0}</b></span><span class="muted">${tn ? `Ce soir : ${esc(tn)}` : 'Ce soir : —'}</span></li>`;
+      }),
+    );
+    if (rows.length) cols.push(`<div class="leaders-col" style="--col:${color}"><h3>${esc(club.name)}</h3><ul>${rows.join('')}</ul></div>`);
+  }
+  if (cols.length < 2) return null;
+  return `<h2>Duel des meneurs</h2><p class="lede">Buts-aides-points cette saison, avant ce match, et ce qu'ils ont fait ce soir jusqu'ici.</p><div class="leaders">${cols.join('')}</div>`;
+}
+
+// Revue de presse : les titres des médias avant la mise en jeu (rien sur le match en cours)
+async function scenePress({ game }) {
+  if (!game?.startTimeUTC) return null;
+  const cfg = this.getConfig();
+  const lang = cfg.stream.languagePriority?.[0] === 'en' ? 'en' : 'fr';
+  const query = (abbrev) => pressQuery({ name: TEAMS[abbrev]?.name ?? abbrev, city: TEAMS[abbrev]?.city ?? '', lang });
+  const before = Date.parse(game.startTimeUTC);
+  const [a, b] = await Promise.all([withTimeout(this.nhl.news(query(game.team.abbrev), lang), 2500), withTimeout(this.nhl.news(query(game.opp.abbrev), lang), 2500)]);
+  const items = pressForShow([...(a ?? []), ...(b ?? [])], { before, max: 5 });
+  if (items.length < 2) return null;
+  return `<h2>Revue de presse</h2><p class="lede">Ce que les médias disaient avant la mise en jeu. Titres publiés avant le match : aucun résultat de ce soir.</p>
+    <ul class="press">${items.map((it) => `<li><span class="src">${esc(it.source ?? 'Presse')}</span><span class="ttl">« ${esc(it.title)} »</span><span class="muted">${esc(timeAgo(it.published, before))} avant le match</span></li>`).join('')}</ul>`;
+}
+
+// Face-à-face : les matchs déjà joués entre les deux équipes cette saison
+async function sceneSeries({ game }) {
+  if (!game) return null;
+  const rail = await withTimeout(this.nhl.rightRail(game.id), 1500);
+  const list = seasonSeries(rail, game.id);
+  if (!list.length) return null;
+  let wins = 0;
+  const rows = list.map((g) => {
+    const teamHome = g.home === game.team.abbrev;
+    const mine = teamHome ? g.homeScore : g.awayScore;
+    const theirs = teamHome ? g.awayScore : g.homeScore;
+    const won = mine > theirs;
+    if (won) wins++;
+    const date = g.date ? new Date(`${g.date}T12:00:00Z`).toLocaleDateString('fr-CA', { day: 'numeric', month: 'long' }) : '';
+    return `<li><span class="when">${esc(date)}</span><span class="sw" style="background:${won ? RED : BLUE}"></span>
+      <span><b>${esc(g.away)} ${g.awayScore ?? '–'}</b> à <b>${esc(g.home)} ${g.homeScore ?? '–'}</b>${g.lastPeriod && g.lastPeriod !== 'REG' ? ` <span class="muted">(${g.lastPeriod === 'OT' ? 'prolongation' : 'tirs de barrage'})</span>` : ''}</span>
+      <span>${won ? 'Victoire' : 'Défaite'}</span></li>`;
+  });
+  return `<h2>Face-à-face cette saison</h2><p class="lede">${esc(game.team.name)} : ${wins} victoire${wins > 1 ? 's' : ''} en ${list.length} match${list.length > 1 ? 's' : ''} contre les ${esc(game.opp.name)} avant ce soir.</p><ul class="goals-list">${rows.join('')}</ul>`;
 }
 
 function sceneIdle({ game }) {
@@ -344,6 +502,25 @@ function sceneIdle({ game }) {
     game ? `${esc(game.team.name)} contre ${esc(game.opp.name)} — on revient au match dès la fin de la pause.` : 'Retour au match dans un instant.'
   }</p>`;
 }
+
+// Ordre de l'émission ; when(cfg.ads) : séquence optionnelle. Chaque séquence est appelée avec
+// l'émission pour « this » et rend null quand elle n'a rien à montrer (elle est alors sautée).
+const sidesOf = (show) => (show.getConfig().ads.oppPlayers ? ['team', 'opp'] : ['team']);
+const SCENES = [
+  { build: sceneCompare },
+  { build: sceneGoalStory },
+  { build: sceneStar },
+  { build: function sceneOppStar(d) { return sceneStar.call(this, d, 'opp'); }, when: (a) => a.oppPlayers },
+  { build: function sceneFactsBoth(d) { return sceneFacts.call(this, d, sidesOf(this)); }, when: (a) => a.facts },
+  { build: sceneShotMap },
+  { build: sceneLeaders, when: (a) => a.oppPlayers },
+  { build: scenePress, when: (a) => a.press },
+  { build: sceneMomentum },
+  { build: function sceneSpotlightBoth(d) { return sceneSpotlight.call(this, d, sidesOf(this)); } },
+  { build: sceneGoalies },
+  { build: sceneSeries, when: (a) => a.oppPlayers },
+  { build: sceneGoals },
+];
 
 function formatToi(s) {
   const sec = Math.round(Number(s) || 0);

@@ -44,13 +44,18 @@ Vous choisissez à l'accueil, et pouvez changer à tout moment (Réglages › G�
 | **Joueur à la rondelle** | En bas à droite, façon FIFA : en carte (photo, numéro, stats du match), en nom seul, ou en **tête émoji**. Le joueur est reconnu par la voix du commentateur et par les actions de la LNH. |
 | **Buts de votre équipe** | « BUT ! » plein écran aux couleurs de l'équipe, carte du marqueur (son 12e but de la saison, aides), confettis et klaxon (synthétisé, ou votre propre fichier). |
 | **Action serrée** | Les bords de l'image prennent la couleur de l'équipe et battent comme un cœur ; le son monte un peu (lecteur intégré). |
-| **Pauses publicitaires** | Le tableau du diffuseur disparaît : le son baisse et une « émission » recouvre la pub (le match en chiffres, carte des tirs, momentum, joueur en vedette, gardiens…). |
-| **Zéro divulgâcheur** | Les streams ont 20 secondes à 2 minutes de retard. La régie lit l'horloge du tableau de score à l'écran et ne montre une action que quand votre image l'atteint. |
+| **Pauses publicitaires** | Pendant les **vraies pubs** seulement, le son baisse et une « émission » recouvre la pub : le match en chiffres, **le but à la loupe** (type de tir, distance, avantage numérique, la phrase du commentateur), joueurs du match des **deux équipes**, « Le saviez-vous ? », duel des meneurs, **revue de presse** d'avant-match, face-à-face de la saison, carte des tirs, momentum, gardiens… |
+| **Ralentis et analyses de la chaîne** | Le tableau de score disparaît aussi pendant les reprises, les analyses et l'entracte : la régie les reconnaît (logo de la chaîne, glace à l'écran, pause télé annoncée par la LNH) et vous laisse les regarder, sans rien par-dessus. |
+| **Zéro divulgâcheur** | Les streams ont 20 secondes à 2 minutes de retard. La régie lit l'horloge du tableau de score à l'écran et ne montre une action que quand votre image l'atteint. Les fiches des joueurs sont ramenées à « avant ce match » et la revue de presse s'arrête à la mise en jeu. |
 | **Buts adverses, pénalités** | Bandeau discret aux couleurs de l'adversaire. |
 
 | Les couleurs changent avec l'équipe suivie | L'émission des pauses |
 |---|---|
 | ![Célébration d'un but : Canadiens à gauche, Maple Leafs à droite](docs/but-deux-equipes.jpg) | ![Pendant la pause : le match en chiffres](docs/pause.jpg) |
+
+| Le but à la loupe | Le saviez-vous ? |
+|---|---|
+| ![Analyse d'un but : position du tir sur la patinoire, type de tir, distance, passeurs](docs/but-loupe.jpg) | ![Anecdotes sur un joueur : origine, repêchage, jalon à portée, forme récente](docs/saviez-vous.jpg) |
 
 ## Installation
 
@@ -74,6 +79,10 @@ sont repris automatiquement.
 3. **Pendant le jeu, calibrez une fois le tableau de score** du diffuseur (bouton Calibrer, ou `C`) :
    « Détection auto » le trouve tout seul, puis encadrez l'horloge. C'est ce qui permet la détection
    des pubs et la synchro sans divulgâcheur. Un profil est gardé par diffuseur (RDS, TVA Sports…).
+   Si la chaîne garde son **logo** dans un coin de l'image, encadrez-le aussi (étape 5) : c'est
+   l'indice le plus sûr pour distinguer une vraie pub d'un ralenti ou d'une analyse de la chaîne.
+4. **Plein écran** : le bouton plein écran du lecteur (ou `F`) met **le lecteur** en plein écran,
+   pas la fenêtre avec le lecteur tout petit dedans ; les graphiques restent par-dessus.
 
 ![Calibration : détection automatique du tableau de score](docs/calibration.jpg)
 
@@ -142,18 +151,21 @@ En lecteur intégré, Rondelle surveille le lecteur et réagit seule :
 | `T` | Mode théâtre | `G` | Tester la célébration |
 | `N` / `P` | Stream suivant / précédent | `H` | Masquer / afficher les graphiques |
 | `M` | Pub : auto › forcée › match forcé | `D` | Moniteur technique |
-| `+` / `−` | Retard du stream (mode manuel) | `S` | Réglages |
+| `A` | Masquer l'émission jusqu'à la fin de la pause | `S` | Réglages |
+| `+` / `−` | Retard du stream (mode manuel) | `Échap` | Quitter le plein écran |
 
 En surcouche, partout dans Windows : `Ctrl+Alt+H` masquer les graphiques, `Ctrl+Alt+M` mode pub,
-`Ctrl+Alt+G` tester la célébration, `Ctrl+Alt+R` ramener le panneau Rondelle.
+`Ctrl+Alt+A` masquer l'émission, `Ctrl+Alt+G` tester la célébration, `Ctrl+Alt+R` ramener le panneau
+Rondelle.
 
 ## Confidentialité
 
 - Reconnaissance vocale, analyse de l'image et têtes émoji fonctionnent **sur votre ordinateur** :
   aucune image ni aucun son n'est envoyé.
 - Rondelle contacte seulement : l'API publique de la LNH (`api-web.nhle.com`, photos et logos sur
-  `assets.nhle.com`), Hugging Face une fois pour le modèle vocal, GitHub une fois par jour pour les
-  mises à jour, et bien sûr le site que vous regardez.
+  `assets.nhle.com`), Google Actualités pendant les pauses pour la revue de presse (titres seulement ;
+  désactivable dans Réglages › Pauses pub), Hugging Face une fois pour le modèle vocal, GitHub une fois
+  par jour pour les mises à jour, et bien sûr le site que vous regardez.
 - Réglages et journal : `%APPDATA%\Rondelle` (Réglages › Avancé › Dossier des données).
 
 ## Pour les développeurs
@@ -179,21 +191,24 @@ src/agent/       injecté dans chaque frame du lecteur intégré : vidéo, son, 
 src/renderer/    interface : app.js (fenêtre principale), overlayApp.js (fenêtre de surcouche),
                  director.js (la régie), capture/ (écran capturé), ui/ (réglages, accueil,
                  effectifs, bulles), voice/ (Whisper), styles.css (charte et jetons)
-src/shared/      logique pure et testée : synchro, pubs, tension, stats, équipes et thèmes,
-                 streams, erreurs de lecture, noms des joueurs, têtes émoji
+src/shared/      logique pure et testée : synchro, pubs (vraies pubs / ralentis), tension, stats,
+                 analyses et anecdotes (insights.js), équipes et thèmes, streams, erreurs de
+                 lecture, noms des joueurs, têtes émoji
 ```
 
 Tests :
 
 ```bash
-npm test                     # logique (38 tests)
+npm test                     # logique (44 tests)
 xvfb-run -a npm run test:e2e # bout en bout (sous Windows : npm run test:e2e)
 ```
 
-Les tests de bout en bout lancent la vraie application : régie en démo, interface (réglages, bulles,
-changement d'équipe, accueil, calibration), surcouche (fenêtre transparente, capture, commandes du
-panneau), lecteurs pièges, erreurs HLS (403, page web au lieu du flux), têtes émoji, voix (faux modèle
-Whisper minuscule). La CI Windows vérifie aussi que l'assistant de volume compile.
+Les tests de bout en bout lancent la vraie application : régie en démo (pubs, et ralentis qui n'en
+sont pas, avec ou sans logo de chaîne : `NOLOGO=1`), interface (réglages, bulles, changement d'équipe,
+accueil, calibration), surcouche (fenêtre transparente, capture, commandes du panneau), lecteurs
+pièges, plein écran d'un lecteur imbriqué dans des iframes de trois domaines, erreurs HLS (403, page
+web au lieu du flux), têtes émoji, voix (faux modèle Whisper minuscule), émission des pauses (toutes
+les séquences, aucun article d'après la mise en jeu). La CI Windows vérifie aussi que l'assistant de volume compile.
 
 Licence MIT (voir `LICENSE`). Composants : Electron (MIT), Ghostery Adblocker (MPL-2.0), Tesseract.js
 (Apache-2.0), Transformers.js (Apache-2.0), ONNX Runtime Web (MIT), modèles Whisper (MIT), polices

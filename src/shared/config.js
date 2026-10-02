@@ -47,6 +47,9 @@ export const DEFAULT_CONFIG = {
     confirmSec: 5, // tableau de score absent depuis X s -> pause pub
     resumeSec: 1.5, // tableau de score revenu depuis X s -> retour au match
     showStats: true,
+    oppPlayers: true, // joueurs adverses, meneurs des deux équipes, face-à-face
+    facts: true, // « Le saviez-vous ? » : anecdotes sur les joueurs
+    press: true, // revue de presse d'avant-match (Google Actualités)
     showOpacity: 0.92,
     sceneSec: 11,
   },
@@ -417,7 +420,10 @@ export const SETTINGS_SECTIONS = [
       {
         title: 'Émission de stats',
         items: [
-          { path: 'ads.showStats', type: 'bool', label: 'Recouvrir la pub par une émission de stats', help: 'Le match en chiffres, carte des tirs, momentum, joueur en vedette, gardiens… calculés uniquement sur ce que vous avez déjà vu.' },
+          { path: 'ads.showStats', type: 'bool', label: 'Recouvrir la pub par une émission de stats', help: "Le match en chiffres, le but à la loupe (type de tir, distance, situation), carte des tirs, momentum, joueurs des deux équipes, gardiens… calculés uniquement sur ce que vous avez déjà vu." },
+          { path: 'ads.oppPlayers', type: 'bool', label: 'Joueurs adverses', when: (c) => c.ads.showStats, help: "Le joueur le plus dangereux de l'adversaire, ses meilleurs pointeurs (« À surveiller »), le duel des meneurs des deux équipes et les matchs déjà joués entre elles cette saison." },
+          { path: 'ads.facts', type: 'bool', label: 'Anecdotes sur les joueurs', when: (c) => c.ads.showStats, help: "« Le saviez-vous ? » : origine, repêchage, trophées, jalons à portée (100e but…), séries de points. Les totaux sont ceux d'avant le match, plus ce que vous avez déjà vu ce soir." },
+          { path: 'ads.press', type: 'bool', label: "Revue de presse d'avant-match", when: (c) => c.ads.showStats, help: "Les titres des médias (La Presse, RDS, TVA Sports, TSN…) via Google Actualités. Seuls les articles publiés avant la mise en jeu sont montrés : jamais le résultat du match en cours." },
           { path: 'ads.showOpacity', type: 'range', min: 0.3, max: 1, step: 0.02, format: pct, label: 'Opacité', when: (c) => c.ads.showStats, help: 'À 100 %, la pub est entièrement cachée.' },
           { path: 'ads.sceneSec', type: 'range', min: 5, max: 30, step: 1, format: sec, label: 'Durée de chaque séquence', when: (c) => c.ads.showStats, help: 'Temps passé sur chaque séquence de l\'émission.' },
         ],

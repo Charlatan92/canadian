@@ -246,7 +246,8 @@ export class Director {
         status: this.lastStatus,
         statusAge: now - this.lastStatusAt,
         frozenSec: this.vision.metrics.frozenSec,
-        inBreak,
+        // une image fixe pendant une pub ou un habillage de la chaîne n'est pas une panne
+        inBreak: inBreak || this.adState === 'show',
       });
       this.#theatre();
     }

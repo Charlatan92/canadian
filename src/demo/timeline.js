@@ -83,10 +83,10 @@ const PLAYS = [
   { p: 1, tip: '04:30', type: 'hit', d: { hittingPlayerId: 90045, hitteePlayerId: 91088 } },
   { p: 1, tip: '06:10', type: 'shot-on-goal', d: { shootingPlayerId: 91034, goalieInNetId: 90035, xCoord: -70, yCoord: 12 } },
   { p: 1, tip: '07:55', type: 'missed-shot', d: { shootingPlayerId: 90093, xCoord: 60, yCoord: 25 } },
-  { p: 1, tip: '08:40', type: 'goal', d: { scoringPlayerId: 90014, scoringPlayerTotal: 6, assist1PlayerId: 90013, goalieInNetId: 91060, homeScore: 1, awayScore: 0, xCoord: 82, yCoord: 3 } },
+  { p: 1, tip: '08:40', type: 'goal', d: { scoringPlayerId: 90014, scoringPlayerTotal: 6, shotType: 'snap', assist1PlayerId: 90013, goalieInNetId: 91060, homeScore: 1, awayScore: 0, xCoord: 82, yCoord: 3 } },
   { p: 1, tip: '11:20', type: 'blocked-shot', d: { blockingPlayerId: 90048, shootingPlayerId: 91044, xCoord: -55, yCoord: -10 } },
   { p: 1, tip: '13:00', type: 'shot-on-goal', d: { shootingPlayerId: 91091, goalieInNetId: 90035, xCoord: -84, yCoord: -4 } },
-  { p: 1, tip: '15:02', type: 'goal', d: { scoringPlayerId: 91088, scoringPlayerTotal: 9, assist1PlayerId: 91034, goalieInNetId: 90035, homeScore: 1, awayScore: 1, xCoord: -80, yCoord: -6 } },
+  { p: 1, tip: '15:02', type: 'goal', d: { scoringPlayerId: 91088, scoringPlayerTotal: 9, shotType: 'backhand', assist1PlayerId: 91034, goalieInNetId: 90035, homeScore: 1, awayScore: 1, xCoord: -80, yCoord: -6 } },
   { p: 1, tip: '17:40', type: 'shot-on-goal', d: { shootingPlayerId: 90020, goalieInNetId: 91060, xCoord: 70, yCoord: 18 } },
   { p: 2, tip: '00:00', type: 'faceoff', d: { winningPlayerId: 91034, losingPlayerId: 90014 } },
   { p: 2, tip: '03:30', type: 'shot-on-goal', d: { shootingPlayerId: 90048, goalieInNetId: 91060, xCoord: 55, yCoord: -20 } },
@@ -94,7 +94,7 @@ const PLAYS = [
   { s: 7, type: 'shot-on-goal', d: { shootingPlayerId: 90013, goalieInNetId: 91060, xCoord: 72, yCoord: 14 } },
   { s: 12, type: 'takeaway', d: { playerId: 90020 } },
   { s: 17, type: 'shot-on-goal', d: { shootingPlayerId: 90093, goalieInNetId: 91060, xCoord: 84, yCoord: -5 } },
-  { s: 22, type: 'goal', d: { scoringPlayerId: 90013, scoringPlayerTotal: 11, assist1PlayerId: 90014, assist2PlayerId: 90048, goalieInNetId: 91060, homeScore: 2, awayScore: 1, xCoord: 80, yCoord: -7 } },
+  { s: 22, type: 'goal', d: { scoringPlayerId: 90013, scoringPlayerTotal: 11, shotType: 'wrist', assist1PlayerId: 90014, assist2PlayerId: 90048, goalieInNetId: 91060, homeScore: 2, awayScore: 1, xCoord: 80, yCoord: -7 } },
   { s: 46, type: 'faceoff', d: { winningPlayerId: 91034, losingPlayerId: 90014 } },
   { s: 52, type: 'hit', d: { hittingPlayerId: 90045, hitteePlayerId: 91034 } },
   { s: 58, type: 'shot-on-goal', d: { shootingPlayerId: 91088, goalieInNetId: 90035, xCoord: -83, yCoord: 6 } },
@@ -106,7 +106,7 @@ const PLAYS = [
   { s: 136, type: 'shot-on-goal', d: { shootingPlayerId: 91034, goalieInNetId: 90035, xCoord: -85, yCoord: 3 } },
   { s: 139, type: 'shot-on-goal', d: { shootingPlayerId: 91088, goalieInNetId: 90035, xCoord: -80, yCoord: -9 } },
   { s: 143, type: 'missed-shot', d: { shootingPlayerId: 91091, xCoord: -77, yCoord: 12 } },
-  { s: 150, type: 'goal', d: { scoringPlayerId: 91034, scoringPlayerTotal: 14, assist1PlayerId: 91088, goalieInNetId: 90035, homeScore: 2, awayScore: 2, xCoord: -86, yCoord: 2 } },
+  { s: 150, type: 'goal', d: { scoringPlayerId: 91034, scoringPlayerTotal: 14, shotType: 'slap', assist1PlayerId: 91088, goalieInNetId: 90035, homeScore: 2, awayScore: 2, xCoord: -86, yCoord: 2 } },
   { s: 170, type: 'faceoff', d: { winningPlayerId: 90014, losingPlayerId: 91034 } },
   { s: 178, type: 'penalty', d: { committedByPlayerId: 91044, drawnByPlayerId: 90020, descKey: 'hooking', duration: 2, typeCode: 'MIN' } },
   { s: 184, type: 'shot-on-goal', d: { shootingPlayerId: 90093, goalieInNetId: 91060, xCoord: 79, yCoord: -11 } },
@@ -228,10 +228,69 @@ export function buildRoster(abbrev) {
   };
 }
 
+// Fiches des joueurs (démo). Les biographies reprennent des faits publics ; les statistiques sont fictives.
+const BIOS = {
+  90014: { birthDate: '1999-08-10', city: 'London', country: 'CAN', draft: [2017, 'VGK', 1, 13], cm: 180, kg: 93, hand: 'R' },
+  90013: { birthDate: '2001-01-02', city: 'Mosinee', country: 'USA', draft: [2019, 'MTL', 1, 15], cm: 175, kg: 79, hand: 'R', careerGoals: 99 },
+  90020: { birthDate: '2004-03-30', city: 'Košice', country: 'SVK', draft: [2022, 'MTL', 1, 1], cm: 191, kg: 99, hand: 'L' },
+  90093: { draft: [2024, 'MTL', 1, 5], hand: 'L' },
+  90048: { draft: [2022, 'MTL', 2, 62], hand: 'L' },
+  90045: { draft: [2020, 'MTL', 1, 16], hand: 'L' },
+  90035: { city: 'Bécancour', country: 'CAN', draft: [2015, 'FLA', 3, 77], hand: 'L' },
+  91034: { birthDate: '1997-09-17', city: 'San Ramon', country: 'USA', draft: [2016, 'TOR', 1, 1], cm: 191, kg: 94, hand: 'L', awards: [['Trophée Hart', [20212022]], ['Trophée Maurice-Richard', [20202021, 20212022, 20232024]]] },
+  91088: { city: 'Calgary', country: 'CAN', draft: [2014, 'TOR', 1, 8], hand: 'R' },
+  91091: { city: 'Mississauga', country: 'CAN', draft: [2009, 'NYI', 1, 1], hand: 'L' },
+  91044: { city: 'Vancouver', country: 'CAN', draft: [2012, 'TOR', 1, 5], hand: 'L' },
+  91060: { draft: [2016, 'TOR', 3, 62], hand: 'L' },
+};
+
 export function buildLanding(id) {
   const k = (id * 31) % 7;
+  const r = ROSTER.find((x) => x.playerId === id);
+  const b = BIOS[id] ?? {};
+  const club = r ? buildClubStats(r.teamId === 8 ? 'MTL' : 'TOR').skaters.find((x) => x.playerId === id) : null;
+  const gp = 180 + ((id * 13) % 260);
+  const careerGoals = b.careerGoals ?? 30 + ((id * 7) % 120);
   return {
     playerId: id,
-    last5Games: ['BOS', 'OTT', 'NYR', 'DET', 'TBL'].map((opp, i) => ({ opponentAbbrev: opp, points: (k + i * 2) % 4, goals: (k + i) % 2 })),
+    firstName: r?.firstName,
+    lastName: r?.lastName,
+    position: r?.positionCode,
+    sweaterNumber: r?.sweaterNumber,
+    ...(b.birthDate ? { birthDate: b.birthDate } : {}),
+    ...(b.city ? { birthCity: { default: b.city }, birthCountry: b.country } : {}),
+    ...(b.draft ? { draftDetails: { year: b.draft[0], teamAbbrev: b.draft[1], round: b.draft[2], overallPick: b.draft[3] } } : {}),
+    ...(b.cm ? { heightInCentimeters: b.cm, weightInKilograms: b.kg } : {}),
+    shootsCatches: b.hand,
+    awards: (b.awards ?? []).map(([fr, seasons]) => ({ trophy: { default: fr, fr }, seasons: seasons.map((seasonId) => ({ seasonId })) })),
+    featuredStats: club ? { season: 20262027, regularSeason: { subSeason: { gamesPlayed: club.gamesPlayed, goals: club.goals, assists: club.assists, points: club.points, plusMinus: club.plusMinus, shots: club.shots, powerPlayGoals: club.powerPlayGoals } } } : undefined,
+    careerTotals: r?.positionCode === 'G' ? { regularSeason: { gamesPlayed: gp, wins: Math.round(gp * 0.52), shutouts: 3 + k } } : { regularSeason: { gamesPlayed: gp, goals: careerGoals, assists: careerGoals + 40, points: 2 * careerGoals + 40 } },
+    last5Games: ['BOS', 'OTT', 'NYR', 'DET', 'TBL'].map((opp, i) => ({ gameId: 2099010000 + i, opponentAbbrev: opp, points: (k + i * 2) % 4, goals: (k + i) % 2 })),
   };
+}
+
+// Face-à-face de la saison (démo) : deux matchs déjà joués, plus celui de ce soir
+export function buildRightRail(start) {
+  const day = (n) => new Date(start - n * 86_400_000).toISOString().slice(0, 10);
+  return {
+    seasonSeries: [
+      { id: 2099010101, gameDate: day(24), gameState: 'OFF', awayTeam: { abbrev: 'MTL', score: 4 }, homeTeam: { abbrev: 'TOR', score: 3 }, gameOutcome: { lastPeriodType: 'OT' } },
+      { id: 2099010102, gameDate: day(9), gameState: 'OFF', awayTeam: { abbrev: 'TOR', score: 2 }, homeTeam: { abbrev: 'MTL', score: 1 }, gameOutcome: { lastPeriodType: 'REG' } },
+      { id: 2099020000 + demoTime(start, Date.now()).cycle, gameDate: day(0), gameState: 'LIVE', awayTeam: { abbrev: 'TOR' }, homeTeam: { abbrev: 'MTL' } },
+    ],
+  };
+}
+
+// Revue de presse fictive (démo) : publiée avant la mise en jeu, plus un article « d'après-match »
+// qui ne doit jamais apparaître (il est daté d'après le début du match)
+export function buildNews(start) {
+  const kickoff = start - 40 * 60_000;
+  const h = (n) => kickoff - n * 3_600_000;
+  return [
+    { title: 'Le Canadien veut poursuivre sa lancée contre les Leafs', source: 'Le Journal fictif', published: h(3) },
+    { title: 'Matthews et Nylander, le duo à contenir ce soir', source: 'Hockey Hebdo (démo)', published: h(6) },
+    { title: 'Hutson, déjà parmi les meilleurs défenseurs offensifs', source: 'La Gazette démo', published: h(20) },
+    { title: 'Montembeault devant le filet face à Toronto', source: 'Le Journal fictif', published: h(27) },
+    { title: 'Le Canadien l’emporte (article d’après-match, jamais affiché)', source: 'Spoiler Sports', published: kickoff + 2 * 3_600_000 },
+  ];
 }

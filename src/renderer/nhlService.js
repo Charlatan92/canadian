@@ -3,9 +3,10 @@ import { Emitter } from './util.js';
 
 // Interroge l'API LNH (gratuite, sans clé) : match du jour, play-by-play, stats des joueurs.
 export class NhlService extends Emitter {
-  constructor({ api, getConfig }) {
+  constructor({ api, news = null, getConfig }) {
     super();
     this.api = api; // (path) => Promise<{ ok, data }>
+    this.newsApi = news; // (q, lang) => Promise<{ ok, items }>
     this.getConfig = getConfig;
     this.scheduleGame = null;
     this.game = null;
@@ -108,5 +109,26 @@ export class NhlService extends Emitter {
 
   playerLanding(id) {
     return this.#cached(`player:${id}`, 60 * 60_000, `/v1/player/${id}/landing`);
+  }
+
+  // Face-à-face de la saison, officiels, etc.
+  rightRail(gameId) {
+    return this.#cached(`rail:${gameId}`, 15 * 60_000, `/v1/gamecenter/${gameId}/right-rail`);
+  }
+
+  // Titres de presse (Google Actualités), gardés 30 minutes
+  async news(q, lang = 'fr') {
+    if (!this.newsApi) return [];
+    const key = `news:${lang}:${q}`;
+    const hit = this.cache.get(key);
+    if (hit && Date.now() - hit.at < 30 * 60_000) return hit.data;
+    try {
+      const res = await this.newsApi(q, lang);
+      if (!res?.ok) throw new Error(res?.error ?? `HTTP ${res?.status}`);
+      this.cache.set(key, { at: Date.now(), data: res.items ?? [] });
+      return res.items ?? [];
+    } catch {
+      return hit?.data ?? [];
+    }
   }
 }

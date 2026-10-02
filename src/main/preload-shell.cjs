@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('rondelle', {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (cfg) => ipcRenderer.invoke('config:set', cfg),
   nhl: (path) => ipcRenderer.invoke('nhl:get', path),
+  news: (q, lang) => ipcRenderer.invoke('news:get', { q, lang }),
   fetchPage: (url) => ipcRenderer.invoke('page:fetch', url),
   allowNavigation: (opts) => ipcRenderer.invoke('nav:allow', opts),
   fullscreen: (value) => ipcRenderer.invoke('win:fullscreen', value),
