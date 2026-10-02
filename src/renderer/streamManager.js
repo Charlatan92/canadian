@@ -1,4 +1,6 @@
 import { teamKeywords } from '../shared/nhl.js';
+import { hostAllowed } from '../shared/navPolicy.js';
+import { describePlayerError, nextRecoveryStep } from '../shared/streamErrors.js';
 import { detectLanguage, extractLinks, pickNextStream, rankStreams } from '../shared/streams.js';
 import { Emitter } from './util.js';
 
@@ -30,6 +32,9 @@ export class StreamManager extends Emitter {
     this.launchedBy = null; // 'app' (lancement auto, bascule) | 'user' (clic sur la page)
     this.playedOnce = false;
     this.helpShown = false;
+    this.recovery = null; // { key, attempt, adblockOff } : reprise après une erreur du lecteur
+    this.lastPlayerErrorAt = 0;
+    this.mediaFailures = []; // échecs du flux vus par le process principal
 
     webview.addEventListener('did-navigate', (e) => this.#onNavigate(e.url));
     webview.addEventListener('did-fail-load', (e) => {
@@ -132,6 +137,7 @@ export class StreamManager extends Emitter {
     const s = this.streams[index];
     if (!s) return;
     this.index = index;
+    this.recovery = null;
     this.#resetPlayback('app');
     this.navigatingAt = Date.now();
     this.#setHealth('warn', 'Chargement…');
@@ -166,6 +172,53 @@ export class StreamManager extends Emitter {
     else this.toast(`Stream en panne : ${reason}. Appuyez sur N pour changer.`, { kind: 'bad' });
   }
 
+  // Recharge la page du stream (même référent) sans changer de stream
+  reload() {
+    this.navigatingAt = Date.now();
+    this.startedAt = Date.now();
+    this.playedOnce = false;
+    this.helpShown = false;
+    this.#setHealth('warn', 'Rechargement…');
+    this.wv.reload();
+  }
+
+  noteMediaFailure(m) {
+    this.mediaFailures.push({ ...m, at: Date.now() });
+    if (this.mediaFailures.length > 20) this.mediaFailures.shift();
+  }
+
+  // Dernier échec du flux de la page actuelle (30 dernières secondes)
+  recentMediaFailure(now = Date.now()) {
+    return [...this.mediaFailures].reverse().find((m) => now - m.at < 30_000) ?? null;
+  }
+
+  // L'agent a vu un écran d'erreur du lecteur (ou la vidéo est en erreur)
+  onPlayerError(err) {
+    const now = Date.now();
+    const pageUrl = this.wv.getURL();
+    if (!pageUrl || pageUrl === 'about:blank' || this.isHome(pageUrl)) return null;
+    // Plusieurs frames signalent la même erreur ; une nouvelle erreur après un rechargement compte
+    if (now - this.lastPlayerErrorAt < 4000 && this.navigatingAt < this.lastPlayerErrorAt) return null;
+    this.lastPlayerErrorAt = now;
+    const key = this.current?.url ?? pageUrl;
+    if (this.recovery?.key !== key) this.recovery = { key, attempt: 0, adblockOff: null };
+    const attempt = ++this.recovery.attempt;
+    const cfg = this.getConfig().stream;
+    const host = hostOf(pageUrl);
+    const adblockActive = cfg.adblock && !this.demo && !!host && !hostAllowed(host, new Set(cfg.adblockExceptions)) && !this.recovery.adblockOff;
+    const canSwitch = this.index >= 0 && (this.launchedBy === 'app' || (this.playedOnce && cfg.autoFailover));
+    const step = nextRecoveryStep({ attempt, adblockActive, canSwitch });
+    const explanation = describePlayerError(err.code);
+    const media = this.recentMediaFailure(now);
+    this.#setHealth('bad', `Erreur du lecteur : ${explanation}`);
+    if (step === 'adblock-off') this.recovery.adblockOff = host;
+    const event = { ...err, attempt, step, host, explanation, media };
+    this.emit('player-error', event);
+    if (step === 'reload') setTimeout(() => this.reload(), 1200);
+    else if (step === 'next') this.fail(media ? media.label : explanation);
+    return event;
+  }
+
   #onNavigate(url) {
     if (!url || url === 'about:blank' || url.startsWith('habs:')) return;
     // Navigation lancée par l'app (éventuellement redirigée) : rien à faire
@@ -183,6 +236,7 @@ export class StreamManager extends Emitter {
       this.emit('list', this.streams);
     }
     this.index = i;
+    this.recovery = null;
     this.#resetPlayback('user');
     this.emit('current', this.streams[i]);
   }
@@ -223,7 +277,7 @@ export class StreamManager extends Emitter {
     }
     if (v.error) {
       this.errorSince ??= now;
-      if (now - this.errorSince > 3000) this.fail('erreur du lecteur');
+      if (now - this.errorSince > 3000 && now - this.navigatingAt > 8000) this.onPlayerError({ code: `media:${v.error}`, text: 'MediaError' });
       return;
     }
     this.errorSince = null;

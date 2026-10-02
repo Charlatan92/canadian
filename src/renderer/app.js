@@ -328,6 +328,61 @@ window.habs.on('nav-blocked', ({ url, host }) => {
   });
 });
 
+// Erreur du lecteur (« manifestLoadError »…) : reprise automatique par étapes
+let adblockTrial = null; // site où le bloqueur est coupé à l'essai
+async function endAdblockTrial() {
+  if (!adblockTrial) return;
+  await window.habs.adblockTemporary(adblockTrial, false);
+  adblockTrial = null;
+}
+window.habs.on('media-failure', (m) => streams.noteMediaFailure(m));
+bridge.on('player-error', (e) => streams.onPlayerError(e));
+streams.on('player-error', async (e) => {
+  const why = e.media ? `${e.explanation} : ${e.media.label}` : e.explanation;
+  if (e.step === 'reload') {
+    toast(`Le lecteur affiche une erreur (${why}). Nouvel essai…`, { kind: 'warn', ms: 5000 });
+  } else if (e.step === 'adblock-off') {
+    adblockTrial = e.host;
+    await window.habs.adblockTemporary(e.host, true);
+    toast(`Nouvel essai sans bloqueur de pubs sur ${e.host}…`, { kind: 'warn', ms: 5000 });
+    streams.reload();
+  } else if (e.step === 'suggest') {
+    toast(`Ce stream ne se lit pas : ${why}.`, {
+      kind: 'bad',
+      ms: 30_000,
+      actions: [
+        { label: 'Stream suivant', fn: () => streams.next() },
+        { label: 'Recharger', fn: () => streams.reload() },
+        { label: 'Ouvrir dans mon navigateur', fn: () => window.habs.openExternal(webview.getURL()) },
+        { label: 'Copier le diagnostic', fn: () => copyDiagnostics() },
+      ],
+    });
+  }
+});
+streams.on('playing', async () => {
+  // Le lecteur ne démarrait qu'avec le bloqueur coupé : on retient ce site
+  if (adblockTrial && adblockTrial === pageHost()) {
+    const host = adblockTrial;
+    await addToList('adblockExceptions', host);
+    toast(`Le bloqueur de pubs empêchait ce lecteur de démarrer : il reste coupé sur ${host}.`, { ms: 8000 });
+  }
+  await endAdblockTrial();
+});
+streams.on('current', () => endAdblockTrial());
+
+// Vidéo protégée (DRM) : impossible à lire dans l'app, mais la surcouche peut se poser dessus
+const drmWarned = new Set();
+bridge.on('drm', ({ supported, url }) => {
+  const host = pageHost();
+  if (supported || drmWarned.has(host)) return;
+  drmWarned.add(host);
+  toast('Cette vidéo est protégée (DRM) : elle ne peut pas être lue dans l\'app. Ouvrez-la dans votre navigateur et utilisez le mode surcouche.', {
+    kind: 'warn',
+    ms: 30_000,
+    actions: [{ label: 'Ouvrir dans mon navigateur', fn: () => window.habs.openExternal(webview.getURL() || url) }],
+  });
+});
+
 // Le stream lancé n'a toujours pas démarré : aide au lieu de changer de stream dans le dos
 streams.on('stuck', ({ hasVideo }) => {
   const host = pageHost();
@@ -345,7 +400,9 @@ streams.on('stuck', ({ hasVideo }) => {
   actions.push({ label: 'Stream suivant', fn: () => streams.next() });
   actions.push({ label: 'Ouvrir dans mon navigateur', fn: () => window.habs.openExternal(webview.getURL()) });
   actions.push({ label: 'Copier le diagnostic', fn: () => copyDiagnostics() });
-  toast(hasVideo ? 'La vidéo est en pause : cliquez sur ▶ dans le lecteur.' : 'Le lecteur ne démarre pas ?', {
+  const media = streams.recentMediaFailure();
+  const text = hasVideo ? 'La vidéo est en pause : cliquez sur ▶ dans le lecteur.' : 'Le lecteur ne démarre pas ?';
+  toast(media ? `${text} Cause probable : ${media.label}.` : text, {
     kind: 'warn',
     ms: 30_000,
     actions,

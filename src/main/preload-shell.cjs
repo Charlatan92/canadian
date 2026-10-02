@@ -1,7 +1,7 @@
 // Pont entre l'interface (renderer isolé) et le process principal.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = new Set(['nav-blocked', 'popup-blocked', 'popup-redirected', 'guest-fullscreen']);
+const EVENTS = new Set(['nav-blocked', 'popup-blocked', 'popup-redirected', 'guest-fullscreen', 'media-failure']);
 
 contextBridge.exposeInMainWorld('habs', {
   info: () => ipcRenderer.invoke('app:info'),
@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('habs', {
   captureGuest: (id, opts) => ipcRenderer.invoke('capture:guest', id, opts),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   diagnostics: () => ipcRenderer.invoke('diag:main'),
+  adblockTemporary: (host, on) => ipcRenderer.invoke('adblock:temporary', host, on),
   saveHead: (key, png) => ipcRenderer.invoke('heads:save', key, png),
   exportHeads: (opts) => ipcRenderer.invoke('heads:export', opts),
   on: (channel, cb) => {

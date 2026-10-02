@@ -27,6 +27,7 @@ const navPolicy = { blockPopups: true, allowedHosts: new Set(), knownStreams: ne
 const log = new EventLog();
 let win = null;
 let adblock = null;
+let media = null;
 let guestId = null;
 let headsDir = null;
 
@@ -44,8 +45,9 @@ function applyPrefs(cfg) {
 
 async function createWindow() {
   const cfg = await config.load();
-  const stream = await createStreamSession({ userData: app.getPath('userData'), log });
+  const stream = await createStreamSession({ userData: app.getPath('userData'), log, notify });
   adblock = stream.adblock;
+  media = stream.media;
   ({ headsDir } = handleAppProtocol(ROOT, stream.ses, { userData: app.getPath('userData') }));
   applyPrefs(cfg);
 
@@ -189,8 +191,15 @@ ipcMain.handle('diag:main', () => {
     page: guest?.getURL?.() ?? null,
     events: log.items.slice(-60),
     adblock: adblock?.report(top) ?? null,
+    media: media?.report() ?? null,
     allowedHosts: [...navPolicy.allowedHosts].slice(0, 80),
   };
+});
+
+// Bloqueur coupé le temps d'un essai sur un site (reprise après une erreur du lecteur)
+ipcMain.handle('adblock:temporary', (_e, host, on) => {
+  adblock?.setTemporary(host, !!on);
+  return true;
 });
 
 ipcMain.handle('win:fullscreen', (_e, value) => {

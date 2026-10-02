@@ -56,6 +56,15 @@ const MAIN_WORLD_PATCH = `(() => {
     emit('__habs_popup', abs);
     return decoy();
   });
+  // Vidéo protégée (DRM) : on le signale, l'interface proposera le mode surcouche
+  if (navigator.requestMediaKeySystemAccess) {
+    const rmksa = navigator.requestMediaKeySystemAccess;
+    hook(Navigator.prototype, 'requestMediaKeySystemAccess', function (keySystem, configs) {
+      const p = rmksa.call(this, keySystem, configs);
+      p.then(() => emit('__habs_drm', { keySystem: String(keySystem), supported: true }), () => emit('__habs_drm', { keySystem: String(keySystem), supported: false }));
+      return p;
+    });
+  }
   hook(window, 'alert', function () {});
   hook(window, 'confirm', function () { return true; });
   hook(window, 'prompt', function (_m, def) { return def ?? ''; });
@@ -67,6 +76,7 @@ try {
   /* ignore */
 }
 document.addEventListener('__habs_fs', (e) => send({ type: 'fullscreen', action: e.detail }));
+document.addEventListener('__habs_drm', (e) => send({ type: 'drm', url: location.href, ...(e.detail || {}) }));
 
 // Le process principal autorise une navigation ou une nouvelle fenêtre seulement si elle vient
 // d'un vrai clic de l'utilisateur sur un lien : on lui signale ces clics (pas ceux des scripts).
@@ -219,6 +229,40 @@ function tryAutoplay() {
   v.play().catch(() => {});
 }
 
+// Écran d'erreur du lecteur (Clappr, hls.js, video.js, JW Player, Shaka…) : « Impossible de lire
+// la vidéo… Error code: hls:networkError_manifestLoadError ». La vidéo existe mais ne jouera pas.
+const PLAYER_ERROR_RE =
+  /(networkError|mediaError|muxError|manifest(?:Load|Parsing|Incompatible)Error|manifestLoadTimeOut|level(?:Load|Empty)Error|frag(?:Load|Parsing)Error|keyLoadError|impossible de lire la vid[ée]o|could not play (?:the )?video|this video (?:file )?cannot be played|le fichier vid[ée]o ne peut pas [êe]tre lu|error loading (?:this )?(?:media|video)|(?:the )?media could not be loaded|a network error caused the media download to fail|error code\s*:?\s*[\w:.-]{3,})/i;
+const ERROR_SELECTORS = '.player-error-screen, [data-error-screen], .jw-error-msg, .jw-state-error, .vjs-error-display, .vjs-error .vjs-modal-dialog-content, .shaka-error, .fp-error, .plyr__error';
+const playerErrors = {
+  reported: new Set(),
+  check() {
+    if (!document.body) return;
+    const roots = new Set();
+    for (const v of findVideos()) {
+      let el = v;
+      for (let i = 0; i < 4 && el.parentElement && el.parentElement !== document.body; i++) el = el.parentElement;
+      roots.add(el);
+      if (v.error && v.error.code) this.report(`media:${v.error.code}`, v.error.message || 'MediaError');
+    }
+    for (const el of document.querySelectorAll(ERROR_SELECTORS)) if (el.getClientRects().length) roots.add(el);
+    for (const el of roots) {
+      const text = (el.innerText || '').slice(0, 2000);
+      const m = text.match(PLAYER_ERROR_RE);
+      if (!m) continue;
+      const code = text.match(/(?:error code|code d'erreur|code)\s*:?\s*([\w:.-]{3,})/i)?.[1] || m[1];
+      this.report(code, text.replace(/\s+/g, ' ').trim().slice(0, 220));
+      return;
+    }
+  },
+  report(code, text) {
+    const key = `${location.href}|${code}`;
+    if (this.reported.has(key)) return;
+    this.reported.add(key);
+    send({ type: 'player-error', code, text, url: location.href, top: IS_TOP });
+  },
+};
+
 let scanTimer = null;
 function scan() {
   state.scans++;
@@ -229,6 +273,7 @@ function scan() {
     tryAutoplay();
   }
   if (state.scans % 3 === 0) guard.sweep();
+  if (state.scans % 2 === 0) playerErrors.check();
   if (theatre.wanted) theatre.apply();
   // Les frames sans vidéo (bannières, widgets) passent en veille douce
   const delay = state.video || state.scans < 30 ? 1000 : 5000;

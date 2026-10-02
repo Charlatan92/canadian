@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { hostAllowed, hostOf, navigationVerdict, popupVerdict } from '../shared/navPolicy.js';
+import { classifyMediaFailure, isManifest, isMediaRequest } from '../shared/streamErrors.js';
 
 // Session isolée du stream : bloqueur de pubs, pop-ups et redirections surveillées,
 // agent injecté dans chaque frame (y compris les iframes du lecteur).
@@ -45,11 +46,19 @@ export class Adblock {
     this.loading = null;
     this.enabled = false;
     this.exceptions = new Set();
+    this.temp = new Set(); // coupé le temps d'un essai (reprise après une erreur du lecteur)
     this.stats = new Map(); // site de la page -> Map(domaine bloqué -> nombre)
   }
 
   isOff(topHost) {
-    return !this.enabled || !this.blocker || hostAllowed(topHost, this.exceptions);
+    return !this.enabled || !this.blocker || hostAllowed(topHost, this.exceptions) || hostAllowed(topHost, this.temp);
+  }
+
+  setTemporary(host, on) {
+    const h = String(host ?? '').replace(/^www\./, '').toLowerCase();
+    if (!h) return;
+    if (on) this.temp.add(h);
+    else this.temp.delete(h);
   }
 
   record(details) {
@@ -96,14 +105,15 @@ export class Adblock {
   #wrap(blocker) {
     const filter = { urls: ['<all_urls>'] };
     this.ses.webRequest.onBeforeRequest(filter, (details, cb) => {
-      if (this.isOff(topHostOf(details))) return cb({});
+      // Le flux vidéo lui-même n'est jamais filtré
+      if (isMediaRequest(details) || this.isOff(topHostOf(details))) return cb({});
       blocker.onBeforeRequest(details, (res) => {
         if (res?.cancel || res?.redirectURL) this.record(details);
         cb(res);
       });
     });
     this.ses.webRequest.onHeadersReceived(filter, (details, cb) => {
-      if (this.isOff(topHostOf(details))) return cb({});
+      if (isMediaRequest(details) || this.isOff(topHostOf(details))) return cb({});
       blocker.onHeadersReceived(details, cb);
     });
     const channel = '@ghostery/adblocker/inject-cosmetic-filters';
@@ -117,17 +127,75 @@ export class Adblock {
   report(topHost) {
     const m = this.stats.get(topHost);
     const blocked = m ? [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15) : [];
-    return { enabled: this.enabled, loaded: !!this.blocker, off: this.isOff(topHost), blocked };
+    return { enabled: this.enabled, loaded: !!this.blocker, off: this.isOff(topHost), temporary: [...this.temp], blocked };
   }
 }
 
-export async function createStreamSession({ userData, log }) {
+function header(headers, name) {
+  if (!headers) return '';
+  for (const [k, v] of Object.entries(headers)) if (k.toLowerCase() === name) return Array.isArray(v) ? v.join(', ') : String(v);
+  return '';
+}
+
+function shortUrl(url) {
+  try {
+    const u = new URL(url);
+    const p = u.pathname.length > 60 ? `…${u.pathname.slice(-60)}` : u.pathname;
+    return `${u.host}${p}`;
+  } catch {
+    return String(url).slice(0, 80);
+  }
+}
+
+// Surveille les requêtes du flux vidéo : listes de lecture (HLS .m3u8, DASH .mpd) et segments.
+// Le lecteur affiche juste « manifestLoadError » ; ici on voit la vraie cause (403, serveur
+// injoignable, page web à la place de la vidéo…).
+export class MediaMonitor {
+  constructor({ ses, notify }) {
+    this.notify = notify;
+    this.events = []; // listes de lecture uniquement
+    this.segments = new Map(); // hôte -> { ok, fail, last }
+    const filter = { urls: ['<all_urls>'] };
+    ses.webRequest.onCompleted(filter, (d) => this.#done(d, null));
+    ses.webRequest.onErrorOccurred(filter, (d) => this.#done(d, d.error));
+  }
+
+  #done(d, error) {
+    if (!isMediaRequest(d) && !isManifest({ url: d.url, contentType: header(d.responseHeaders, 'content-type') })) return;
+    const contentType = header(d.responseHeaders, 'content-type');
+    const status = d.statusCode ?? 0;
+    const failure = classifyMediaFailure({ status, error: error ?? '', contentType });
+    if (isManifest({ url: d.url, contentType })) {
+      const ev = { t: Date.now(), url: shortUrl(d.url), host: hostOf(d.url), top: topHostOf(d), status, error: error ?? null, contentType, kind: failure?.kind ?? 'ok' };
+      this.events.push(ev);
+      if (this.events.length > 60) this.events.shift();
+      if (failure) this.notify('media-failure', { ...ev, label: failure.label });
+      return;
+    }
+    const host = hostOf(d.url);
+    const seg = this.segments.get(host) ?? { ok: 0, fail: 0, last: null };
+    if (failure) {
+      seg.fail++;
+      seg.last = { t: Date.now(), status, error: error ?? null, label: failure.label };
+    } else if (!error) seg.ok++;
+    this.segments.set(host, seg);
+  }
+
+  report() {
+    return {
+      manifests: this.events.slice(-25),
+      segments: [...this.segments.entries()].slice(-10).map(([host, s]) => ({ host, ...s })),
+    };
+  }
+}
+
+export async function createStreamSession({ userData, log, notify = () => {} }) {
   const ses = session.fromPartition(STREAM_PARTITION);
   ses.setUserAgent(cleanUserAgent(ses.getUserAgent()));
   const allowed = new Set(['fullscreen', 'clipboard-sanitized-write']);
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(allowed.has(permission)));
   ses.setPermissionCheckHandler((_wc, permission) => allowed.has(permission));
-  return { ses, adblock: new Adblock({ ses, userData, log }) };
+  return { ses, adblock: new Adblock({ ses, userData, log }), media: new MediaMonitor({ ses, notify }) };
 }
 
 // Branche les protections sur le webContents invité (<webview>).
@@ -185,7 +253,8 @@ export function guardGuest(guest, { policy, notify, log }) {
     setTimeout(() => {
       if (navigationVerdict({ url, ...ctx() }) === 'allow') {
         log.add('nav-allowed', { url, why: 'clic utilisateur (tardif)' });
-        guest.loadURL(url);
+        // Même référent qu'un clic normal : certains hébergeurs refusent le flux sans lui
+        guest.loadURL(url, { httpReferrer: guest.getURL() });
         return;
       }
       log.add('nav-blocked', { url });

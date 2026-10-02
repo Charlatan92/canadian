@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="fr">
+<head><meta charset="utf-8"><title>Lecteur HLS (test)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #eee; font-family: sans-serif; }
+  #player { position: relative; width: 100vw; height: 100vh; }
+  video { width: 100%; height: 100%; }
+  .player-error-screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,.85); }
+</style></head>
+<body>
+  <!-- Imite Clappr + hls.js : la liste de lecture est demandée en XHR, l'écran d'erreur est celui de Clappr en français -->
+  <div id="player" data-player><video id="v" muted playsinline></video></div>
+  <canvas id="c" width="640" height="360" style="display:none"></canvas>
+  <script>
+    const mode = new URLSearchParams(location.search).get('mode') || 'ok';
+    function showError(code) {
+      const d = document.createElement('div');
+      d.className = 'player-error-screen';
+      d.innerHTML = '<div><b>Impossible de lire la vidéo.</b></div><div>Un problème est survenu lors du chargement de la vidéo.</div><div>Error code: ' + code + '</div>';
+      document.getElementById('player').appendChild(d);
+      window.playerError = code;
+    }
+    function play() {
+      const c = document.getElementById('c');
+      const ctx = c.getContext('2d');
+      let t = 0;
+      (function draw() {
+        t++;
+        ctx.fillStyle = 'hsl(' + (t % 360) + ', 60%, 40%)';
+        ctx.fillRect(0, 0, 640, 360);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect((t * 7) % 640, 150, 60, 60);
+        requestAnimationFrame(draw);
+      })();
+      const v = document.getElementById('v');
+      v.srcObject = c.captureStream(25);
+      v.play();
+      window.playing = true;
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', '/cdn/live.m3u8?mode=' + mode);
+    xhr.onload = () => {
+      if (xhr.status !== 200) return showError('hls:networkError_manifestLoadError');
+      if (!xhr.responseText.startsWith('#EXTM3U')) return showError('hls:networkError_manifestParsingError');
+      play();
+    };
+    xhr.onerror = () => showError('hls:networkError_manifestLoadError');
+    xhr.send();
+  </script>
+</body>
+</html>

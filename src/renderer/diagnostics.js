@@ -1,7 +1,7 @@
 // Rapport de diagnostic copiable : ce que l'app a vu de la page du stream.
 // Utile quand un lecteur refuse de démarrer sur un site qu'on ne peut pas tester soi-même.
 
-const AGENT_EVENTS = ['popup', 'overlay-removed', 'audio-attached', 'audio-failed', 'audio-silent', 'vision'];
+const AGENT_EVENTS = ['popup', 'overlay-removed', 'audio-attached', 'audio-failed', 'audio-silent', 'vision', 'player-error', 'drm'];
 
 export class Diagnostics {
   constructor({ webview, bridge, streams, director, getConfig }) {
@@ -35,6 +35,8 @@ export class Diagnostics {
         etat: s.health,
         dejaJoue: s.playedOnce,
         lancePar: s.launchedBy,
+        reprise: s.recovery,
+        echecsFlux: s.mediaFailures.slice(-10),
         liste: s.streams.map(({ label, host, lang, source }) => ({ label, host, lang, source })),
       },
       frames: [...this.bridge.frames.values()].map((f) => ({
