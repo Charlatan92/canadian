@@ -10,8 +10,8 @@ const CARD_TYPES = new Set(['faceoff', 'shot-on-goal', 'missed-shot', 'blocked-s
 
 // La Régie : relie le stream (vision, audio), l'API LNH synchronisée et les surcouches.
 export class Director {
-  constructor({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads }) {
-    Object.assign(this, { getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads });
+  constructor({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads, voice }) {
+    Object.assign(this, { getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads, voice });
     const cfg = getConfig();
     this.clock = new StreamClock({ mode: cfg.sync.mode, manualDelaySec: cfg.sync.manualDelaySec });
     this.scheduler = new EventScheduler();
@@ -60,6 +60,13 @@ export class Director {
     vision.on('score', (s) => this.#onScreenScore(s));
     vision.on('reference', (profile) => this.#saveProfile(profile));
     streams.on('list', () => this.#maybeAutoStart());
+    // Le commentateur nomme le joueur : c'est lui qui a la rondelle (ou presque)
+    voice?.on('names', ({ found }) => {
+      if (this.getConfig().regie.playerSource !== 'voice+api') return;
+      if (Date.now() - (this.lastApiCardAt ?? 0) < 1500) return; // une action LNH vient d'être affichée
+      // Le dernier nommé a la rondelle ; s'il n'est pas affichable (filtre d'équipe), le précédent
+      for (const f of [...found].reverse()) if (this.showPlayer(f.player, { label: 'À la rondelle' })) break;
+    });
 
     this.timer = setInterval(() => this.tick(), 250);
   }
@@ -120,8 +127,10 @@ export class Director {
       this.stats = null;
     }
     const isNew = this.game?.id !== g.id;
+    const rosterChanged = isNew || this.game?.players.size !== g.players.size;
     this.game = g;
     if (isNew) this.#prefetchHeads();
+    if (rosterChanged) this.voice?.setRoster([...g.players.values()]);
     this.clock.configure({ gameType: g.gameType });
     this.clock.apiSample(
       { period: g.period, secondsRemaining: g.clock.secondsRemaining, running: g.clock.running, inIntermission: g.clock.inIntermission },
@@ -231,6 +240,7 @@ export class Director {
     }
     if (now - this.lastUi >= 500) {
       this.lastUi = now;
+      this.#updateVoice(cfg, inBreak);
       this.#renderGamePill();
       this.#renderSync();
       this.#renderHud(now);
@@ -372,6 +382,20 @@ export class Director {
     if (want !== this.bridge.desired.theatre) this.bridge.setTheatre(want);
   }
 
+  #updateVoice(cfg, inBreak) {
+    if (!this.voice) return;
+    const lang = this.streams.current?.lang;
+    const language = cfg.voice.language !== 'auto' ? cfg.voice.language : lang === 'fr' ? 'fr' : 'en';
+    this.voice.update({
+      enabled: cfg.voice.enabled && cfg.regie.playerSource === 'voice+api' && cfg.regie.playerCard,
+      // seulement pendant le jeu : ni pendant les pubs, ni avant que le stream joue
+      active: !!this.game && this.streams.playedOnce && !inBreak,
+      model: cfg.voice.model,
+      device: cfg.voice.device,
+      language,
+    });
+  }
+
   // ------------------------------------------------------------- Affichage
 
   #renderGamePill() {
@@ -424,6 +448,7 @@ export class Director {
         `api      ${this.game ? `${this.game.state} ${this.game.period}e ${formatClock(this.game.clock.secondsRemaining)} ${this.game.clock.running ? '▶' : '❚❚'}` : '—'} · en attente ${this.scheduler.pending.length}`,
         `tension  ${f(this.tension.value)} (audio ${f(this.tension.audioExcitement)} · contexte ${f(this.tension.context)}) · son ${f(this.audioLevel, 1)} dB`,
         `gain     ${this.lastDb ?? '—'} dB (${cfg.audio.mode})`,
+        `voix     ${this.voice ? `${this.voice.status.state}${this.voice.status.device ? ` · ${this.voice.status.device}` : ''}${this.voice.status.ms != null ? ` · ${this.voice.status.ms} ms` : ''} · « ${(this.voice.status.lastText ?? '').slice(0, 60)} »` : '—'}`,
       ].join('\n'),
     );
   }

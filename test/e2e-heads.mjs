@@ -1,6 +1,7 @@
 // Têtes émoji dans l'app : photo (servie localement à la place d'assets.nhle.com) -> PNG émoji,
 // avatar casque de secours sans photo, affichage "nom" et "tête émoji" à l'écran.
-// Usage : xvfb-run -a node test/e2e-heads.mjs <photo.png détourée> [dossier-captures]
+// Usage : xvfb-run -a node test/e2e-heads.mjs [photo.png détourée] [dossier-captures]
+// Sans photo, un portrait synthétique au format des photos LNH est dessiné.
 import { _electron as electron } from 'playwright-core';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -10,10 +11,39 @@ import path from 'node:path';
 const photo = process.argv[2];
 const outDir = process.argv[3] ?? 'test-output';
 fs.mkdirSync(outDir, { recursive: true });
+let photoPng = photo ? fs.readFileSync(photo) : null;
 const server = http.createServer((req, res) => {
-  if (!req.url.startsWith('/mugs/')) return res.writeHead(404).end();
-  res.writeHead(200, { 'content-type': 'image/png' }).end(fs.readFileSync(photo));
+  if (!req.url.startsWith('/mugs/') || !photoPng) return res.writeHead(404).end();
+  res.writeHead(200, { 'content-type': 'image/png' }).end(photoPng);
 });
+
+// Portrait détouré synthétique : 168 x 168, fond transparent, comme les photos officielles
+function drawFakeHeadshot() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 168;
+  const g = c.getContext('2d');
+  g.fillStyle = '#af1e2d';
+  g.beginPath();
+  g.ellipse(84, 178, 82, 56, 0, Math.PI, 0);
+  g.fill();
+  g.fillStyle = '#e0ac8a';
+  g.fillRect(70, 100, 28, 30);
+  g.beginPath();
+  g.ellipse(84, 72, 30, 38, 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#3b2a1f';
+  g.beginPath();
+  g.ellipse(84, 46, 31, 17, 0, Math.PI, 0);
+  g.fill();
+  g.fillStyle = '#222';
+  for (const x of [72, 96]) {
+    g.beginPath();
+    g.arc(x, 70, 3, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.fillRect(76, 92, 16, 3);
+  return c.toDataURL('image/png').split(',')[1];
+}
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'habs-heads-'));
 const app = await electron.launch({
@@ -24,6 +54,7 @@ const win = await app.firstWindow();
 const errors = [];
 win.on('pageerror', (e) => errors.push(String(e)));
 await win.waitForFunction(() => window.__habs?.heads, null, { timeout: 20_000 });
+photoPng ??= Buffer.from(await win.evaluate(drawFakeHeadshot), 'base64');
 const checks = {};
 
 const save = async (url, name) => {
@@ -69,6 +100,7 @@ for (const style of ['name', 'emoji']) {
 
 const exported = await win.evaluate(() => window.habs.exportHeads({ folder: 'Test export', files: [{ key: 'p990013', name: '13 Test Photo' }], open: false }));
 checks['export PNG dans Images'] = exported.copied === 1 && fs.existsSync(path.join(exported.folder, '13 Test Photo.png'));
+if (exported.folder) fs.rmSync(exported.folder, { recursive: true, force: true });
 checks['aucune erreur'] = errors.length === 0;
 
 await app.close();

@@ -269,6 +269,7 @@ const audio = {
       if (this.ctx.state !== 'running') await this.ctx.resume();
       // Si le contexte ne démarre pas, brancher la vidéo dessus la rendrait muette : on renonce
       if (this.ctx.state !== 'running' || this.nodes?.video === v) return;
+      voice.stop(); // la copie du son suit la nouvelle vidéo (rebranchée plus bas)
       const ctx = this.ctx;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
@@ -276,8 +277,9 @@ const audio = {
       if (v.srcObject instanceof MediaStream) {
         // Flux direct (WebRTC, canvas...) : on l'écoute sans le détourner, volume par l'élément
         if (!v.srcObject.getAudioTracks().length) return;
-        ctx.createMediaStreamSource(v.srcObject).connect(analyser);
-        this.nodes = { video: v, route: 'stream', analyser, gain: null };
+        const src = ctx.createMediaStreamSource(v.srcObject);
+        src.connect(analyser);
+        this.nodes = { video: v, route: 'stream', analyser, gain: null, source: src };
       } else if (this.mode === 'webaudio' && !isCrossOrigin(v)) {
         // Cas normal (HLS/MSE) : la vidéo passe par notre chaîne gain -> limiteur
         const src = ctx.createMediaElementSource(v);
@@ -289,13 +291,14 @@ const audio = {
         limiter.connect(ctx.destination);
         src.connect(analyser);
         gain.gain.value = dbToGain(this.targetDb);
-        this.nodes = { video: v, route: 'graph', analyser, gain };
+        this.nodes = { video: v, route: 'graph', analyser, gain, source: src };
       } else {
         // Vidéo d'un autre domaine (Web Audio n'y aurait que du silence) ou mode compatible
         this.nodes = { video: v, route: 'element', analyser: null, gain: null };
       }
       this.setGain(this.targetDb);
       if (this.nodes.analyser) this.startAnalysis();
+      if (voice.wanted) voice.start();
       send({ type: 'audio-attached', route: this.nodes.route, url: location.href });
     } catch (err) {
       this.failed = v;
@@ -387,6 +390,89 @@ function isCrossOrigin(v) {
   } catch {
     return false;
   }
+}
+
+// Voix du commentateur : copie du son en 16 kHz mono pour la reconnaissance des noms.
+// On se branche en dérivation sur la source : ce que vous entendez ne change pas.
+const voice = {
+  wanted: false,
+  tap: null,
+  resampler: null,
+  buf: new Int16Array(8000),
+  fill: 0,
+
+  set(on) {
+    this.wanted = !!on;
+    if (on) this.start();
+    else this.stop();
+  },
+
+  start() {
+    const n = audio.nodes;
+    if (!this.wanted || this.tap || !n?.source || !audio.ctx) return;
+    const ctx = audio.ctx;
+    const tap = ctx.createScriptProcessor(4096, 1, 1);
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    this.resampler = makeResampler(ctx.sampleRate, 16000);
+    tap.onaudioprocess = (e) => {
+      if (n.video.paused) return;
+      this.push(this.resampler(e.inputBuffer.getChannelData(0)));
+    };
+    n.source.connect(tap);
+    tap.connect(mute);
+    mute.connect(ctx.destination);
+    this.tap = { node: tap, mute, source: n.source };
+    send({ type: 'voice-ready', sampleRate: ctx.sampleRate });
+  },
+
+  stop() {
+    if (!this.tap) return;
+    try {
+      this.tap.source.disconnect(this.tap.node);
+      this.tap.node.disconnect();
+      this.tap.mute.disconnect();
+    } catch {
+      /* déjà débranché */
+    }
+    this.tap = null;
+    this.fill = 0;
+  },
+
+  push(samples) {
+    for (let i = 0; i < samples.length; i++) {
+      const v = Math.max(-1, Math.min(1, samples[i]));
+      this.buf[this.fill++] = v < 0 ? v * 0x8000 : v * 0x7fff;
+      if (this.fill === this.buf.length) {
+        send({ type: 'pcm', rate: 16000, data: this.buf });
+        this.buf = new Int16Array(8000);
+        this.fill = 0;
+      }
+    }
+  },
+};
+
+// Rééchantillonnage en continu (filtre passe-bas simple puis interpolation linéaire)
+function makeResampler(from, to) {
+  const ratio = from / to;
+  const alpha = Math.min(1, (2 * Math.PI * (to * 0.45)) / from / (1 + (2 * Math.PI * (to * 0.45)) / from));
+  let lp = 0;
+  let prev = 0;
+  let pos = 0;
+  return (input) => {
+    const out = [];
+    for (let i = 0; i < input.length; i++) {
+      lp += alpha * (input[i] - lp);
+      // échantillons de sortie qui tombent entre prev (i-1) et lp (i)
+      while (pos <= 1) {
+        out.push(prev + (lp - prev) * pos);
+        pos += ratio;
+      }
+      pos -= 1;
+      prev = lp;
+    }
+    return out;
+  };
 }
 
 function dbToGain(db) {
@@ -661,6 +747,9 @@ ipcRenderer.on('agent-cmd', (_e, cmd) => {
       break;
     case 'snapshot':
       vision.snapshot(cmd.id, cmd.maxWidth);
+      break;
+    case 'voice':
+      voice.set(cmd.on);
       break;
     case 'burst':
       vision.burst(cmd.id, cmd);

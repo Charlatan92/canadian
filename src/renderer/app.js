@@ -6,6 +6,7 @@ import { DEMO_PROFILE, createDemoApi } from './demo.js';
 import { Diagnostics } from './diagnostics.js';
 import { Director } from './director.js';
 import { EmojiHeads, seasonLabel } from './emojiHeads.js';
+import { VoiceEngine } from './voice/voiceEngine.js';
 import { GoalHorn } from './horn.js';
 import { NhlService } from './nhlService.js';
 import { OcrEngine } from './ocrEngine.js';
@@ -42,6 +43,7 @@ const ocr = new OcrEngine();
 const vision = new VisionPipeline({ ocr });
 const horn = new GoalHorn();
 const heads = new EmojiHeads();
+const voice = new VoiceEngine({ bridge });
 
 const ui = {
   demo,
@@ -68,7 +70,7 @@ async function saveConfig(next, { silent = false } = {}) {
   return cfg;
 }
 
-const director = new Director({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads });
+const director = new Director({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads, voice });
 const diagnostics = new Diagnostics({ webview, bridge, streams, director, getConfig });
 
 const settings = new SettingsPanel($('#settings'), {
@@ -402,6 +404,35 @@ bridge.on('audio-silent', () => {
   });
 });
 
+// Téléchargement unique du modèle vocal, puis état de la reconnaissance
+let voiceShown = { state: null, progress: 0, slowHint: false };
+voice.on('status', (st) => {
+  if (st.state === 'ready' && st.device === 'wasm' && st.ms > 3500 && !voiceShown.slowHint && getConfig().voice.model !== 'tiny') {
+    voiceShown.slowHint = true;
+    toast('Voix du commentateur lente sur le processeur : choisissez le modèle « Rapide » dans Réglages → Voix du commentateur.', {
+      kind: 'warn',
+      ms: 9000,
+    });
+  }
+  if (st.state === 'loading' && st.progress != null && st.progress - voiceShown.progress >= 20) {
+    voiceShown.progress = st.progress;
+    toast(`Modèle de reconnaissance vocale : ${st.progress} % (téléchargé une seule fois)`, { ms: 3000 });
+  }
+  if (st.state !== voiceShown.state) {
+    if (st.state === 'ready') toast(`Voix du commentateur : prête (${st.device === 'webgpu' ? 'carte graphique' : 'processeur'})`, { ms: 4000 });
+    if (st.state === 'error') {
+      toast(
+        st.offline
+          ? 'Voix du commentateur : modèle pas encore téléchargé (huggingface.co injoignable). Nouvel essai automatique ; les cartes joueur continuent avec les données LNH.'
+          : `Reconnaissance vocale indisponible : ${st.error}`,
+        { kind: 'warn', ms: 8000 },
+      );
+    }
+    if (st.state === 'loading') voiceShown.progress = 0;
+    voiceShown.state = st.state;
+  }
+});
+
 let nhlErrorShown = false;
 nhl.on('error', (err) => {
   if (nhlErrorShown) return;
@@ -435,4 +466,4 @@ if (demo) {
   }
 }
 
-window.__habs = { director, streams, bridge, vision, nhl, getConfig, diagnostics, heads };
+window.__habs = { director, streams, bridge, vision, nhl, getConfig, diagnostics, heads, voice };

@@ -238,9 +238,9 @@ export const SETTINGS_SCHEMA = [
         label: 'Modèle (téléchargé une fois)',
         type: 'select',
         options: [
-          { value: 'tiny', label: 'Rapide (~40 Mo)' },
-          { value: 'base', label: 'Équilibré (~80 Mo)' },
-          { value: 'small', label: 'Précis (~250 Mo, carte graphique)' },
+          { value: 'tiny', label: 'Rapide (~40 Mo, ~120 Mo sur carte graphique)' },
+          { value: 'base', label: 'Équilibré (~80 Mo, ~200 Mo sur carte graphique)' },
+          { value: 'small', label: 'Précis (~250 Mo, ~600 Mo ; carte graphique conseillée)' },
         ],
       },
       {

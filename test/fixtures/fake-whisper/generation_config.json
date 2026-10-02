@@ -1,0 +1,20 @@
+{
+ "decoder_start_token_id": 4,
+ "eos_token_id": 3,
+ "pad_token_id": 3,
+ "bos_token_id": 3,
+ "is_multilingual": true,
+ "lang_to_id": {
+  "<|en|>": 5,
+  "<|fr|>": 6
+ },
+ "task_to_id": {
+  "translate": 7,
+  "transcribe": 8
+ },
+ "no_timestamps_token_id": 9,
+ "max_length": 32,
+ "begin_suppress_tokens": [],
+ "suppress_tokens": [],
+ "max_initial_timestamp_index": 50
+}
