@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Page avec lecteur imbriqué</title>
+<style>
+  body { margin: 0; font-family: sans-serif; background: #eee; }
+  header { height: 80px; background: #223; color: #fff; position: relative; z-index: 50; }
+  main { display: flex; gap: 20px; padding: 20px; }
+  /* conteneur piège : transformé et en z-index bas, comme beaucoup de sites */
+  .wrap { width: 480px; height: 270px; transform: translateZ(0); position: relative; z-index: 1; overflow: hidden; border: 4px solid #999; }
+  .wrap iframe { width: 100%; height: 100%; border: 0; }
+  aside { flex: 1; height: 600px; background: #ccd; }
+</style></head>
+<body>
+  <header>Site de streams</header>
+  <main><div class="wrap"><iframe id="mid" src="MID_URL" allowfullscreen></iframe></div><aside>Chat</aside></main>
+</body></html>

@@ -31,8 +31,39 @@ const MAIN_WORLD_PATCH = `(() => {
       Object.defineProperty(obj, name, { value, configurable: true, writable: true });
     } catch (e) {}
   };
-  const enter = function () { emit('__rdl_fs', 'enter'); return Promise.resolve(); };
-  const exit = function () { emit('__rdl_fs', 'exit'); return Promise.resolve(); };
+  // Plein écran : la page croit l'être (fullscreenElement, événements fullscreenchange), mais
+  // c'est Rondelle qui agrandit le lecteur à toute sa fenêtre : ses graphiques restent par-dessus.
+  let fsEl = null;
+  const fire = (el) => {
+    for (const t of [el, document]) {
+      for (const n of ['fullscreenchange', 'webkitfullscreenchange']) {
+        try { t.dispatchEvent(new Event(n, { bubbles: true })); } catch (e) {}
+      }
+    }
+  };
+  const getter = (obj, name, get) => { try { Object.defineProperty(obj, name, { get, configurable: true }); } catch (e) {} };
+  for (const n of ['fullscreenElement', 'webkitFullscreenElement', 'webkitCurrentFullScreenElement', 'mozFullScreenElement']) getter(Document.prototype, n, () => fsEl);
+  for (const n of ['fullscreen', 'webkitIsFullScreen', 'mozFullScreen']) getter(Document.prototype, n, () => !!fsEl);
+  for (const n of ['fullscreenEnabled', 'webkitFullscreenEnabled']) getter(Document.prototype, n, () => true);
+  const enter = function () {
+    if (fsEl && fsEl !== this) { try { fsEl.removeAttribute('data-rdl-fsreq'); } catch (e) {} }
+    fsEl = this;
+    try { this.setAttribute('data-rdl-fsreq', '1'); } catch (e) {}
+    emit('__rdl_fs', 'enter');
+    setTimeout(() => fire(this), 0);
+    return Promise.resolve();
+  };
+  const exit = function () {
+    const el = fsEl;
+    if (!el) return Promise.resolve();
+    fsEl = null;
+    try { el.removeAttribute('data-rdl-fsreq'); } catch (e) {}
+    emit('__rdl_fs', 'exit');
+    setTimeout(() => fire(el), 0);
+    return Promise.resolve();
+  };
+  // Rondelle quitte le plein écran (Échap, touche F) : la page en est prévenue
+  document.addEventListener('__rdl_fs_exit', () => exit.call(document));
   for (const n of ['requestFullscreen', 'webkitRequestFullscreen', 'webkitRequestFullScreen', 'mozRequestFullScreen']) hook(Element.prototype, n, enter);
   hook(HTMLVideoElement.prototype, 'webkitEnterFullscreen', enter);
   hook(HTMLVideoElement.prototype, 'webkitEnterFullScreen', enter);
@@ -75,7 +106,21 @@ try {
 } catch {
   /* ignore */
 }
-document.addEventListener('__rdl_fs', (e) => send({ type: 'fullscreen', action: e.detail }));
+// Le lecteur demande le plein écran : on agrandit l'élément demandé (et les iframes qui le
+// contiennent, jusqu'en haut de la page), puis l'interface passe la fenêtre en plein écran.
+let fsMode = false;
+document.addEventListener('__rdl_fs', (e) => {
+  if (e.detail === 'enter') {
+    const el = document.querySelector('[data-rdl-fsreq]');
+    fsMode = true;
+    if (el) stage.mark(el.tagName === 'VIDEO' ? containerOf(el) : el);
+  } else {
+    fsMode = false;
+    stage.unmark();
+    if (theatre.wanted) theatre.apply();
+  }
+  send({ type: 'fullscreen', action: e.detail });
+});
 document.addEventListener('__rdl_drm', (e) => send({ type: 'drm', url: location.href, ...(e.detail || {}) }));
 
 // Le process principal autorise une navigation ou une nouvelle fenêtre seulement si elle vient
@@ -645,61 +690,96 @@ const vision = {
 // 5. Mode théâtre : le lecteur occupe toute la fenêtre, le reste de la page disparaît
 // ---------------------------------------------------------------------------
 
-const theatre = {
-  wanted: false,
-  target: null,
-  style: null,
+// « Scène » : un élément (lecteur, ou iframe qui contient le lecteur) occupe toute la page.
+// Chaque frame marque son élément et prévient sa frame parente, qui marque l'iframe
+// correspondante, et ainsi de suite jusqu'en haut : le lecteur remplit toute la fenêtre même
+// à travers plusieurs iframes de domaines différents.
+const STAGE_CSS = `
+  [data-rdl-theatre]{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;
+    max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;margin:0!important;padding:0!important;
+    border:0!important;z-index:2147483647!important;background:#000!important;transform:none!important;visibility:visible!important;
+    opacity:1!important;clip-path:none!important;border-radius:0!important;}
+  [data-rdl-theatre] video, video[data-rdl-theatre]{object-fit:contain!important;width:100%!important;height:100%!important;max-height:none!important;}
+  [data-rdl-chain]{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;
+    will-change:auto!important;visibility:visible!important;opacity:1!important;clip-path:none!important;z-index:2147483646!important;}
+  html[data-rdl-stage],html[data-rdl-stage] body{overflow:hidden!important;}`;
+let stageCssDone = false;
+function ensureStageCss() {
+  if (stageCssDone) return;
+  stageCssDone = true;
+  try {
+    webFrame.insertCSS(STAGE_CSS); // feuille de style de l'agent : passe outre la CSP de la page
+  } catch {
+    stageCssDone = false;
+  }
+}
 
-  set(on) {
-    this.wanted = !!on;
-    if (!on) this.clear();
-    else this.apply();
-  },
-
-  clear() {
-    this.style?.remove();
-    this.style = null;
-    for (const el of document.querySelectorAll('[data-rdl-theatre],[data-rdl-chain]')) {
-      el.removeAttribute('data-rdl-theatre');
-      el.removeAttribute('data-rdl-chain');
-    }
-    this.target = null;
-  },
-
-  pickTarget() {
-    let best = null;
-    let bestArea = 0;
-    for (const el of document.querySelectorAll('iframe, video')) {
-      const a = visibleArea(el) || el.offsetWidth * el.offsetHeight;
-      if (a > bestArea && el.offsetWidth >= 160 && el.offsetHeight >= 90) {
-        best = el;
-        bestArea = a;
+const stage = {
+  el: null,
+  mark(el) {
+    if (!el || this.el === el) return;
+    ensureStageCss();
+    this.clearLocal();
+    this.el = el;
+    el.setAttribute('data-rdl-theatre', '1');
+    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) a.setAttribute('data-rdl-chain', '1');
+    document.documentElement.setAttribute('data-rdl-stage', '1');
+    if (!IS_TOP) {
+      try {
+        window.parent.postMessage({ __rdlStage: 'on' }, '*');
+      } catch {
+        /* frame détachée */
       }
     }
-    // On prend le conteneur du lecteur (avec ses contrôles), pas seulement la balise <video>
-    return best && best.tagName === 'VIDEO' ? containerOf(best) : best;
   },
-
-  apply() {
-    if (!document.body) return;
-    const target = this.pickTarget();
-    if (!target || target === this.target) return;
-    this.clear();
-    this.target = target;
-    target.setAttribute('data-rdl-theatre', '1');
-    for (let a = target.parentElement; a && a !== document.documentElement; a = a.parentElement) {
-      a.setAttribute('data-rdl-chain', '1');
+  clearLocal() {
+    for (const n of document.querySelectorAll('[data-rdl-theatre],[data-rdl-chain]')) {
+      n.removeAttribute('data-rdl-theatre');
+      n.removeAttribute('data-rdl-chain');
     }
-    this.style = document.createElement('style');
-    this.style.textContent = `
-      [data-rdl-theatre]{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;
-        max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;margin:0!important;
-        border:0!important;z-index:2147483646!important;background:#000!important;transform:none!important;visibility:visible!important;}
-      [data-rdl-theatre] video, video[data-rdl-theatre]{object-fit:contain!important;width:100%!important;height:100%!important;}
-      [data-rdl-chain]{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;
-        will-change:auto!important;visibility:visible!important;}
-      html,body{overflow:hidden!important;}`;
-    (document.head || document.documentElement).appendChild(this.style);
+    document.documentElement.removeAttribute('data-rdl-stage');
+    this.el = null;
+  },
+  unmark() {
+    if (!this.el) return;
+    this.clearLocal();
+    if (!IS_TOP) {
+      try {
+        window.parent.postMessage({ __rdlStage: 'off' }, '*');
+      } catch {
+        /* frame détachée */
+      }
+    }
+  },
+};
+
+// Une frame enfant a mis son lecteur en scène : on agrandit l'iframe qui la contient
+window.addEventListener('message', (e) => {
+  const m = e.data;
+  if (!m || typeof m !== 'object' || !m.__rdlStage || !e.source) return;
+  const frame = [...document.querySelectorAll('iframe, frame')].find((f) => {
+    try {
+      return f.contentWindow === e.source;
+    } catch {
+      return false;
+    }
+  });
+  if (!frame) return;
+  if (m.__rdlStage === 'on') stage.mark(frame);
+  else if (stage.el === frame) stage.unmark();
+});
+
+// Mode théâtre : seulement dans la frame de la vidéo principale (l'interface ne l'envoie qu'à elle)
+const theatre = {
+  wanted: false,
+  set(on) {
+    this.wanted = !!on;
+    if (on) this.apply();
+    else if (!fsMode) stage.unmark();
+  },
+  apply() {
+    if (fsMode || !state.video || !document.body) return;
+    stage.mark(containerOf(state.video));
   },
 };
 
@@ -746,7 +826,7 @@ function isTransparent(color) {
 
 // Le "lecteur" de la page : la plus grande vidéo (avec son conteneur) ou iframe visible
 function playerRoot() {
-  if (theatre.target && theatre.target.isConnected) return theatre.target;
+  if (stage.el && stage.el.isConnected) return stage.el;
   let best = null;
   let bestArea = 0;
   for (const el of document.querySelectorAll('iframe, video')) {
@@ -786,6 +866,9 @@ ipcRenderer.on('agent-cmd', (_e, cmd) => {
       break;
     case 'theatre':
       theatre.set(cmd.on);
+      break;
+    case 'fs-exit':
+      if (fsMode) document.dispatchEvent(new CustomEvent('__rdl_fs_exit'));
       break;
     case 'guard':
       guard.enabled = !!cmd.on;

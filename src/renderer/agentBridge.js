@@ -102,7 +102,9 @@ export class AgentBridge extends Emitter {
     if (old) {
       this.#send(old, { type: 'vision', fps: 0 });
       this.#send(old, { type: 'voice', on: false });
+      this.#send(old, { type: 'theatre', on: false });
     }
+    if (best && this.desired.theatre) this.#send(best, { type: 'theatre', on: true });
     if (best && this.desired.vision) this.#send(best, this.desired.vision);
     if (best && this.desired.voice) this.#send(best, { type: 'voice', on: true });
     this.emit('primary', best);
@@ -111,7 +113,6 @@ export class AgentBridge extends Emitter {
   #syncNewFrame(f) {
     if (this.desired.audio) this.#send(f, this.desired.audio);
     this.#send(f, { type: 'guard', on: this.desired.guard });
-    if (this.desired.theatre) this.#send(f, { type: 'theatre', on: true });
   }
 
   #send(f, cmd) {
@@ -139,9 +140,15 @@ export class AgentBridge extends Emitter {
     if (this.primary) this.#send(this.primary, { type: 'voice', on: !!on });
   }
 
+  // Mode théâtre : seule la frame de la vidéo principale agrandit son lecteur (et ses iframes parentes)
   setTheatre(on) {
     this.desired.theatre = !!on;
-    this.broadcast({ type: 'theatre', on: !!on });
+    if (this.primary) this.#send(this.primary, { type: 'theatre', on: !!on });
+  }
+
+  // Rondelle quitte le plein écran : les pages qui se croyaient en plein écran sont prévenues
+  exitFullscreen() {
+    this.broadcast({ type: 'fs-exit' });
   }
 
   setGuard(on) {

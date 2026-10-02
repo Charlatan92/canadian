@@ -385,7 +385,7 @@ export class Director {
   }
 
   #theatre() {
-    const want = this.getConfig().stream.theatreMode && this.streams.index >= 0 && !!this.bridge.primary;
+    const want = this.getConfig().stream.theatreMode && !this.streams.isHome() && !!this.bridge.primary;
     if (want !== this.bridge.desired.theatre) this.bridge.setTheatre(want);
   }
 

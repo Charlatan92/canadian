@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html,body{margin:0;height:100%;background:#000}
+  #box{position:relative;width:70%;height:70%;margin:20px auto;background:#111}
+  video{width:100%;height:100%}
+  #fs{position:absolute;right:8px;bottom:8px;z-index:5}
+</style></head>
+<body>
+  <div id="box"><video id="v" muted playsinline></video><button id="fs">⛶</button></div>
+  <canvas id="c" width="640" height="360" style="display:none"></canvas>
+  <script>
+    const c = document.getElementById('c'); const ctx = c.getContext('2d'); let t = 0;
+    (function draw() { t++; ctx.fillStyle = 'hsl(' + (t % 360) + ',60%,40%)'; ctx.fillRect(0, 0, 640, 360); ctx.fillStyle = '#fff'; ctx.fillRect((t * 7) % 640, 150, 60, 60); requestAnimationFrame(draw); })();
+    const v = document.getElementById('v'); v.srcObject = c.captureStream(25); v.play();
+    window.fsChanges = 0;
+    document.addEventListener('fullscreenchange', () => { window.fsChanges++; window.fsState = !!document.fullscreenElement; });
+    // Comme les vrais lecteurs : bascule selon document.fullscreenElement
+    document.getElementById('fs').addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen(); else document.getElementById('box').requestFullscreen();
+    });
+  </script>
+</body></html>

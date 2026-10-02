@@ -247,14 +247,22 @@ function testGoal() {
   d.celebrate(goal ?? null);
 }
 
+// Plein écran : la fenêtre passe en plein écran et le lecteur occupe toute la place (mode
+// théâtre, ou l'élément que le lecteur a lui-même demandé en plein écran). Les graphiques restent
+// par-dessus, ce qui serait impossible avec le vrai plein écran du site.
 let immersive = false;
-async function setImmersive(on) {
+let playerFullscreen = false; // le lecteur du site se croit en plein écran
+async function setImmersive(on, { fromPlayer = false } = {}) {
+  if (!on && playerFullscreen && !fromPlayer) bridge?.exitFullscreen();
+  if (fromPlayer) playerFullscreen = on;
+  else if (!on) playerFullscreen = false;
   immersive = on;
   await window.rondelle.fullscreen(on);
   document.body.classList.toggle('immersive', on);
   $('#btn-fullscreen').classList.toggle('active', on);
   $('#btn-fullscreen').innerHTML = icon(on ? 'shrink' : 'expand');
-  if (on && MODE === 'web' && !cfg.stream.theatreMode) await saveConfig({ ...cfg, stream: { ...cfg.stream, theatreMode: true } }, { silent: true });
+  // Touche F ou bouton : le lecteur seul, plein cadre (le lecteur qui demande le plein écran s'en charge lui-même)
+  if (on && !fromPlayer && MODE === 'web' && !cfg.stream.theatreMode) await saveConfig({ ...cfg, stream: { ...cfg.stream, theatreMode: true } }, { silent: true });
 }
 
 function toggleTheatre() {
@@ -509,7 +517,7 @@ function startIntegratedPlayer() {
     if (streams.index < 0 || !streams.streams.length) streams.refresh();
   }, 180_000);
 
-  bridge.on('fullscreen', (m) => setImmersive(m.action === 'exit' ? false : !immersive));
+  bridge.on('fullscreen', (m) => setImmersive(m.action !== 'exit', { fromPlayer: true }));
   window.rondelle.on('guest-fullscreen', () => setImmersive(true));
   bridge.on('hotkey', ({ key }) => {
     if (calibration.open && key !== 'escape') return;
