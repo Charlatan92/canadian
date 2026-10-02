@@ -63,6 +63,7 @@ export class SettingsPanel {
         <button data-act="test-goal">Tester la célébration</button>
         <button data-act="test-horn">Tester le klaxon</button>
         <button data-act="calibrate">Calibrer le tableau</button>
+        <button data-act="heads">Créer les têtes émoji du roster</button>
       </div>
       ${sections}
       <h3>Profils de diffusion (tableau de score)</h3>
@@ -199,6 +200,9 @@ export class SettingsPanel {
         await this.#save((cfg) => cfg.stream.customStreams.splice(Number(b.dataset.i), 1));
         this.actions.refreshStreams();
         this.render();
+        break;
+      case 'heads':
+        this.actions.makeHeads();
         break;
       case 'adx-del':
         await this.#save((cfg) => cfg.stream.adblockExceptions.splice(Number(b.dataset.i), 1));

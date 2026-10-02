@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('habs', {
   captureGuest: (id, opts) => ipcRenderer.invoke('capture:guest', id, opts),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   diagnostics: () => ipcRenderer.invoke('diag:main'),
+  saveHead: (key, png) => ipcRenderer.invoke('heads:save', key, png),
+  exportHeads: (opts) => ipcRenderer.invoke('heads:export', opts),
   on: (channel, cb) => {
     if (!EVENTS.has(channel)) throw new Error(`Événement inconnu : ${channel}`);
     const listener = (_e, payload) => cb(payload);

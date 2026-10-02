@@ -217,6 +217,17 @@ export function buildClubStats(abbrev) {
   return { skaters, goalies };
 }
 
+export function buildRoster(abbrev) {
+  const teamId = abbrev === 'MTL' ? 8 : 10;
+  const spot = (r) => ({ id: r.playerId, headshot: '', firstName: r.firstName, lastName: r.lastName, sweaterNumber: r.sweaterNumber, positionCode: r.positionCode });
+  const mine = ROSTER.filter((r) => r.teamId === teamId);
+  return {
+    forwards: mine.filter((r) => 'CLR'.includes(r.positionCode)).map(spot),
+    defensemen: mine.filter((r) => r.positionCode === 'D').map(spot),
+    goalies: mine.filter((r) => r.positionCode === 'G').map(spot),
+  };
+}
+
 export function buildLanding(id) {
   const k = (id * 31) % 7;
   return {

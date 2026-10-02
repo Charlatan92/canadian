@@ -10,8 +10,8 @@ const CARD_TYPES = new Set(['faceoff', 'shot-on-goal', 'missed-shot', 'blocked-s
 
 // La Régie : relie le stream (vision, audio), l'API LNH synchronisée et les surcouches.
 export class Director {
-  constructor({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui }) {
-    Object.assign(this, { getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui });
+  constructor({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads }) {
+    Object.assign(this, { getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads });
     const cfg = getConfig();
     this.clock = new StreamClock({ mode: cfg.sync.mode, manualDelaySec: cfg.sync.manualDelaySec });
     this.scheduler = new EventScheduler();
@@ -76,6 +76,7 @@ export class Director {
     this.applyVisionConfig();
     this.bridge.setGuard(cfg.stream.blockPopups);
     this.lastDb = null; // renvoie la config audio
+    this.#prefetchHeads();
     if (this.adState === 'break' && (!cfg.ads.enabled || !cfg.ads.showStats)) this.adShow.stop();
   }
 
@@ -118,7 +119,9 @@ export class Director {
       this.clock.reset();
       this.stats = null;
     }
+    const isNew = this.game?.id !== g.id;
     this.game = g;
+    if (isNew) this.#prefetchHeads();
     this.clock.configure({ gameType: g.gameType });
     this.clock.apiSample(
       { period: g.period, secondsRemaining: g.clock.secondsRemaining, running: g.clock.running, inIntermission: g.clock.inIntermission },
@@ -139,6 +142,32 @@ export class Director {
     // Données saisonnières préchargées pour l'émission des pauses
     this.nhl.clubStats(g.team.abbrev);
     this.nhl.clubStats(g.opp.abbrev);
+  }
+
+  // Têtes émoji des joueurs en uniforme ce soir, préparées en arrière-plan
+  #prefetchHeads() {
+    const cfg = this.getConfig();
+    if (cfg.regie.playerStyle !== 'emoji' || !this.game || !this.heads) return;
+    const players = [...this.game.players.values()].filter((p) => cfg.regie.playerCardFilter === 'all' || p.teamId === this.game.team.id);
+    this.heads.prefetch(players);
+  }
+
+  // Affiche le joueur "à la rondelle" dans le style choisi (carte, nom, tête émoji)
+  showPlayer(player, { play = null, label = null } = {}) {
+    const cfg = this.getConfig();
+    const g = this.game;
+    if (!cfg.regie.playerCard || !player || !g) return false;
+    if (this.adState === 'break' || this.overlays.celebration.active) return false;
+    if (cfg.regie.playerCardFilter === 'team' && player.teamId !== g.team.id) return false;
+    const style = cfg.regie.playerStyle;
+    let emojiUrl = null;
+    if (style === 'emoji' && this.heads) {
+      emojiUrl = this.heads.cachedUrl(player);
+      if (!emojiUrl) this.heads.get(player).then((url) => this.overlays.card.updateEmoji(player.id, url)).catch(() => {});
+    }
+    this.overlays.card.show({ player, play, label, stats: this.stats?.players.get(player.id), durationSec: cfg.regie.playerCardSec, style, emojiUrl });
+    this.lastPlayerShownAt = Date.now();
+    return true;
   }
 
   #maybeAutoStart() {
@@ -234,11 +263,8 @@ export class Director {
       });
       return;
     }
-    if (!cfg.regie.playerCard || !CARD_TYPES.has(p.type) || !p.playerId) return;
-    if (this.adState === 'break' || this.overlays.celebration.active) return;
-    const pl = g.players.get(p.playerId);
-    if (!pl || (cfg.regie.playerCardFilter === 'team' && pl.teamId !== g.team.id)) return;
-    this.overlays.card.show({ player: pl, play: p, stats: this.stats?.players.get(pl.id), durationSec: cfg.regie.playerCardSec });
+    if (!CARD_TYPES.has(p.type) || !p.playerId) return;
+    if (this.showPlayer(g.players.get(p.playerId), { play: p })) this.lastApiCardAt = Date.now();
   }
 
   celebrate(play = null) {
@@ -251,7 +277,8 @@ export class Director {
       return;
     }
     this.overlays.card.hide();
-    this.overlays.celebration.start({ player, play, game: g, durationSec: cfg.regie.celebrationSec, confetti: cfg.regie.confetti });
+    const emojiUrl = cfg.regie.playerStyle === 'emoji' && player && this.heads ? this.heads.cachedUrl(player) : null;
+    this.overlays.celebration.start({ player, play, game: g, durationSec: cfg.regie.celebrationSec, confetti: cfg.regie.confetti, emojiUrl });
     this.horn.play({ hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume });
   }
 

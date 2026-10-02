@@ -28,6 +28,7 @@ const log = new EventLog();
 let win = null;
 let adblock = null;
 let guestId = null;
+let headsDir = null;
 
 function notify(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -45,7 +46,7 @@ async function createWindow() {
   const cfg = await config.load();
   const stream = await createStreamSession({ userData: app.getPath('userData'), log });
   adblock = stream.adblock;
-  handleAppProtocol(ROOT, stream.ses);
+  ({ headsDir } = handleAppProtocol(ROOT, stream.ses, { userData: app.getPath('userData') }));
   applyPrefs(cfg);
 
   win = new BrowserWindow({
@@ -148,6 +149,35 @@ ipcMain.handle('open-external', (_e, url) => {
   if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
   shell.openExternal(url);
   return true;
+});
+
+// Têtes émoji : cache interne + export en PNG dans le dossier Images de l'utilisateur
+const HEAD_KEY = /^[\w-]{1,80}$/;
+ipcMain.handle('heads:save', async (_e, key, png) => {
+  if (!headsDir || typeof key !== 'string' || !HEAD_KEY.test(key) || !(png instanceof ArrayBuffer || ArrayBuffer.isView(png))) return false;
+  await fs.mkdir(headsDir, { recursive: true });
+  const bytes = png instanceof ArrayBuffer ? Buffer.from(png) : Buffer.from(png.buffer, png.byteOffset, png.byteLength);
+  await fs.writeFile(path.join(headsDir, `${key}.png`), bytes);
+  return true;
+});
+
+ipcMain.handle('heads:export', async (_e, { folder, files = [], open = true } = {}) => {
+  const name = String(folder ?? 'Têtes').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').slice(0, 80) || 'Têtes';
+  const dest = path.join(app.getPath('pictures'), 'Habs Régie', name);
+  await fs.mkdir(dest, { recursive: true });
+  let copied = 0;
+  for (const f of files) {
+    if (!HEAD_KEY.test(f?.key ?? '')) continue;
+    const out = String(f.name ?? f.key).replace(/[<>:"/\\|?*\x00-\x1f]/g, '').slice(0, 80) || f.key;
+    try {
+      await fs.copyFile(path.join(headsDir, `${f.key}.png`), path.join(dest, `${out}.png`));
+      copied++;
+    } catch {
+      /* tête pas encore générée */
+    }
+  }
+  if (open && copied) shell.openPath(dest);
+  return { folder: dest, copied };
 });
 
 // Diagnostic : ce que le process principal a vu (pop-ups, redirections, pubs bloquées)

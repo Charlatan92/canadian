@@ -5,6 +5,7 @@ import { Calibration } from './calibration.js';
 import { DEMO_PROFILE, createDemoApi } from './demo.js';
 import { Diagnostics } from './diagnostics.js';
 import { Director } from './director.js';
+import { EmojiHeads, seasonLabel } from './emojiHeads.js';
 import { GoalHorn } from './horn.js';
 import { NhlService } from './nhlService.js';
 import { OcrEngine } from './ocrEngine.js';
@@ -40,6 +41,7 @@ const nhl = new NhlService({ api: demo ? createDemoApi(demoStart) : window.habs.
 const ocr = new OcrEngine();
 const vision = new VisionPipeline({ ocr });
 const horn = new GoalHorn();
+const heads = new EmojiHeads();
 
 const ui = {
   demo,
@@ -66,7 +68,7 @@ async function saveConfig(next, { silent = false } = {}) {
   return cfg;
 }
 
-const director = new Director({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui });
+const director = new Director({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads });
 const diagnostics = new Diagnostics({ webview, bridge, streams, director, getConfig });
 
 const settings = new SettingsPanel($('#settings'), {
@@ -80,6 +82,7 @@ const settings = new SettingsPanel($('#settings'), {
     refreshStreams: () => streams.refresh(),
     currentUrl: () => webview.getURL(),
     copyDiagnostics: () => copyDiagnostics(),
+    makeHeads: () => makeRosterHeads(),
   },
 });
 
@@ -347,6 +350,32 @@ streams.on('stuck', ({ hasVideo }) => {
   });
 });
 
+// « Créer les têtes émoji du roster » : toute l'équipe suivie, en PNG dans Images/Habs Régie
+let makingHeads = false;
+async function makeRosterHeads() {
+  if (makingHeads) return;
+  makingHeads = true;
+  toast(`Création des têtes émoji ${teamLabel(cfg.team)} ${seasonLabel()}…`, { ms: 4000 });
+  try {
+    let lastToast = 0;
+    const res = await heads.generateRoster({
+      nhl,
+      team: cfg.team,
+      onProgress: (i, n) => {
+        if (i === n || Date.now() - lastToast > 4000) {
+          lastToast = Date.now();
+          toast(`Têtes émoji : ${i}/${n}`, { ms: 2500 });
+        }
+      },
+    });
+    toast(`${res.copied} têtes enregistrées dans ${res.folder}`, { ms: 10_000 });
+  } catch (err) {
+    toast(`Impossible de créer les têtes : ${err.message}`, { kind: 'bad', ms: 8000 });
+  } finally {
+    makingHeads = false;
+  }
+}
+
 async function copyDiagnostics() {
   try {
     await diagnostics.copy();
@@ -406,4 +435,4 @@ if (demo) {
   }
 }
 
-window.__habs = { director, streams, bridge, vision, nhl, getConfig, diagnostics };
+window.__habs = { director, streams, bridge, vision, nhl, getConfig, diagnostics, heads };

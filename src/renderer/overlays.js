@@ -11,13 +11,16 @@ export class PlayerCard {
     this.hideTimer = null;
     this.shownAt = 0;
     this.queued = null;
+    this.current = null;
   }
 
-  show({ player, play, stats, durationSec = 5 }) {
+  // style : 'card' (photo + nom) | 'name' (nom seulement) | 'emoji' (tête émoji)
+  // play : action LNH (ou null quand c'est le commentateur qui nomme le joueur) ; label : texte forcé
+  show(opts) {
     // Pas plus d'un changement de carte toutes les 1,2 s : sinon ça clignote
     const wait = 1200 - (Date.now() - this.shownAt);
     if (wait > 0) {
-      this.queued = { player, play, stats, durationSec };
+      this.queued = opts;
       clearTimeout(this.queueTimer);
       this.queueTimer = setTimeout(() => {
         const q = this.queued;
@@ -26,39 +29,71 @@ export class PlayerCard {
       }, wait);
       return;
     }
+    const { player, play = null, stats, durationSec = 5, style = 'card', label = null, emojiUrl = null } = opts;
     this.shownAt = Date.now();
-    const s = stats ?? {};
-    const action = play.type === 'penalty' ? penaltyLabel(play.details?.descKey) : EVENT_LABELS[play.type] ?? play.type;
-    const pts = (s.g ?? 0) + (s.a1 ?? 0) + (s.a2 ?? 0);
-    const statLine =
-      player.pos === 'G'
-        ? ''
-        : `<span><b>${s.g ?? 0}</b>B</span><span><b>${(s.a1 ?? 0) + (s.a2 ?? 0)}</b>A</span><span><b>${s.sog ?? 0}</b>TIRS</span><span><b>${s.hits ?? 0}</b>MÉ</span>`;
+    this.current = player.id;
+    const action = label ?? (play?.type === 'penalty' ? penaltyLabel(play.details?.descKey) : EVENT_LABELS[play?.type] ?? '');
+    this.el.className = `player-card style-${style}`;
     this.el.style.setProperty('--team', teamColor(player.teamAbbrev));
-    this.el.innerHTML = `
-      <div class="pc-photo">${photoHtml(player.headshot, initials(player))}</div>
-      <div class="pc-body">
-        <div class="pc-num">${esc(player.number ?? '')}</div>
-        <div class="pc-first">${esc(player.first)} · ${esc(player.teamAbbrev ?? '')}</div>
-        <div class="pc-last">${esc(player.last)}</div>
-        <div class="pc-meta">
-          <span class="pc-chip">${esc(action)}</span>
-          <span class="pc-chip ghost">${esc(POS_FR[player.pos] ?? player.pos)}</span>
-          ${pts >= 2 ? '<span class="pc-chip ghost">En feu</span>' : ''}
-        </div>
-        <div class="pc-stats">${statLine}</div>
-      </div>`;
-    this.el.classList.remove('show');
+    if (style === 'name') this.el.innerHTML = nameplateHtml(player, action);
+    else if (style === 'emoji') this.el.innerHTML = emojiHtml(player, action, emojiUrl);
+    else this.el.innerHTML = cardHtml(player, action, stats);
     void this.el.offsetWidth; // relance l'animation d'entrée
     this.el.classList.add('show');
     clearTimeout(this.hideTimer);
     this.hideTimer = setTimeout(() => this.hide(), durationSec * 1000);
   }
 
+  // La tête émoji est arrivée après coup (première génération) : on l'affiche si c'est toujours lui
+  updateEmoji(playerId, url) {
+    if (this.current !== playerId || !this.el.classList.contains('style-emoji')) return;
+    const box = this.el.querySelector('.pe-head');
+    if (box) box.outerHTML = `<img class="pe-head" src="${esc(url)}" alt="">`;
+  }
+
   hide() {
     clearTimeout(this.hideTimer);
     this.el.classList.remove('show');
+    this.current = null;
   }
+}
+
+function cardHtml(player, action, stats) {
+  const s = stats ?? {};
+  const pts = (s.g ?? 0) + (s.a1 ?? 0) + (s.a2 ?? 0);
+  const statLine =
+    player.pos === 'G'
+      ? ''
+      : `<span><b>${s.g ?? 0}</b>B</span><span><b>${(s.a1 ?? 0) + (s.a2 ?? 0)}</b>A</span><span><b>${s.sog ?? 0}</b>TIRS</span><span><b>${s.hits ?? 0}</b>MÉ</span>`;
+  return `
+      <div class="pc-photo">${photoHtml(player.headshot, initials(player))}</div>
+      <div class="pc-body">
+        <div class="pc-num">${esc(player.number ?? '')}</div>
+        <div class="pc-first">${esc(player.first)} · ${esc(player.teamAbbrev ?? '')}</div>
+        <div class="pc-last">${esc(player.last)}</div>
+        <div class="pc-meta">
+          ${action ? `<span class="pc-chip">${esc(action)}</span>` : ''}
+          <span class="pc-chip ghost">${esc(POS_FR[player.pos] ?? player.pos)}</span>
+          ${pts >= 2 ? '<span class="pc-chip ghost">En feu</span>' : ''}
+        </div>
+        <div class="pc-stats">${statLine}</div>
+      </div>`;
+}
+
+// Plaque façon FIFA : numéro dans la couleur de l'équipe, nom en grand
+function nameplateHtml(player, action) {
+  return `
+      <div class="pn-num">${esc(player.number ?? '')}</div>
+      <div class="pn-body">
+        <div class="pn-first">${esc(player.first)}</div>
+        <div class="pn-last">${esc(player.last)}</div>
+        ${action ? `<div class="pn-action">${esc(action)}</div>` : ''}
+      </div>`;
+}
+
+function emojiHtml(player, action, url) {
+  const head = url ? `<img class="pe-head" src="${esc(url)}" alt="">` : `<div class="pe-head pe-wait">${esc(player.number ?? initials(player))}</div>`;
+  return `${head}${action ? `<div class="pe-action">${esc(action)}</div>` : ''}`;
 }
 
 // ---------------------------------------------------------------- Bandeau bas de l'écran
@@ -107,7 +142,7 @@ export class Celebration {
     this.active = false;
   }
 
-  start({ player, play, game, durationSec = 9, confetti = true }) {
+  start({ player, play, game, durationSec = 9, confetti = true, emojiUrl = null }) {
     this.stop();
     this.active = true;
     const d = play?.details ?? {};
@@ -121,7 +156,7 @@ export class Celebration {
     if (play) lines.push(`${periodName(play.period, game?.gameType)}${play.period <= 3 ? ' période' : ''} · ${formatClock(play.tip)}`);
     const scorer = player
       ? `<div class="cel-scorer">
-           <div class="cel-photo">${photoHtml(player.headshot, initials(player))}</div>
+           <div class="cel-photo${emojiUrl ? ' cel-emoji' : ''}">${emojiUrl ? `<img src="${esc(emojiUrl)}" alt="">` : photoHtml(player.headshot, initials(player))}</div>
            <div><div class="cel-name">${esc(player.first)} ${esc(player.last)} <span style="opacity:.7">#${esc(player.number ?? '')}</span></div>
            ${lines.filter(Boolean).map((l) => `<div class="cel-line">${esc(l)}</div>`).join('')}</div>
          </div>`
