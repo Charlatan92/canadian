@@ -15,6 +15,7 @@ const roster = [
   P(9, 'Kirby', 'Dach'),
   P(10, 'Samuel', 'Montembeault'),
   P(20, 'Auston', 'Matthews', 10),
+  P(40, 'Brayden', 'Point', 14),
   P(21, 'William', 'Nylander', 10),
   P(30, 'Jack', 'Hughes', 1),
   P(31, 'Luke', 'Hughes', 1),
@@ -48,6 +49,15 @@ test('voix : commentaire en anglais et erreurs de transcription', () => {
   assert.deepEqual(ids('Dash to the net'), [9], 'Dach se prononce « Dash »');
   assert.deepEqual(ids('touch the puck'), [], 'nom court : forme phonétique exacte exigée');
   assert.deepEqual(ids('he carries it in'), [], '« carries » n\'est pas Carrier');
+});
+
+test('voix : noms qui sont aussi des mots courants (majuscule exigée)', () => {
+  assert.deepEqual(ids('Big hit on the puck carrier'), []);
+  assert.deepEqual(ids('Carrier clears it'), [8]);
+  assert.deepEqual(ids('Hutson takes the shot from the point'), [5]);
+  assert.deepEqual(ids('Hutson à la pointe'), [5]);
+  assert.deepEqual(ids('Kucherov feeds Point, he scores!'), [40]);
+  assert.deepEqual(ids('carrier dégage la zone'), [8], 'transcription sans majuscules : on garde le nom');
 });
 
 test('voix : homonymes ignorés et répétitions fusionnées', () => {

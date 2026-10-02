@@ -40,6 +40,12 @@ const COMMON = new Set(
   ).split(/\s+/),
 );
 
+// Noms qui sont aussi des mots du commentaire (« the puck carrier », « from the point », « à la
+// pointe », « en laine ») : retenus seulement avec une majuscule, que Whisper met aux noms propres
+const AMBIGUOUS = new Set(
+  'carrier point pointe laine roi roy couture marchand parent stone king young white brown black hall wood little price hart fox bean'.split(' '),
+);
+
 // Forme phonétique simplifiée, commune au français et à l'anglais
 export function phonetic(word) {
   let s = fold(word).replace(/[^a-z]/g, '');
@@ -118,10 +124,14 @@ export class NameSpotter {
 
   // Retourne les joueurs nommés, dans l'ordre où ils sont dits
   spot(text) {
-    const words = fold(text)
-      .replace(/[^a-z'\s-]/g, ' ')
+    const raw = String(text ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Za-z'\s-]/g, ' ')
       .split(/[\s'-]+/)
       .filter(Boolean);
+    const words = raw.map((w) => w.toLowerCase());
+    const hasCase = raw.some((w) => w !== w.toLowerCase()); // transcription sans majuscules : on ne peut pas trancher
     const found = [];
     for (let i = 0; i < words.length; i++) {
       // un mot seul, ou deux mots collés (« slaf kovsky », « van riemsdyk »)
@@ -130,6 +140,7 @@ export class NameSpotter {
       let best = null;
       for (const [cand, span] of candidates) {
         if (cand.length < 3 || (span === 1 && COMMON.has(cand))) continue;
+        if (span === 1 && hasCase && AMBIGUOUS.has(cand) && raw[i][0] === words[i][0]) continue;
         const key = phonetic(cand);
         for (const e of this.entries) {
           const score = similarity(key, e.key);
