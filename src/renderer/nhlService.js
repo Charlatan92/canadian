@@ -16,11 +16,21 @@ export class NhlService extends Emitter {
 
   start() {
     this.stop();
-    this.#loop();
+    this.gen = (this.gen ?? 0) + 1;
+    this.#loop(this.gen);
   }
 
   stop() {
     clearTimeout(this.timer);
+  }
+
+  // Changement d'équipe suivie : on repart de zéro
+  restart() {
+    this.stop();
+    this.scheduleGame = null;
+    this.scheduleAt = 0;
+    this.game = null;
+    this.start();
   }
 
   async #get(path) {
@@ -29,20 +39,21 @@ export class NhlService extends Emitter {
     return res.data;
   }
 
-  async #loop() {
+  async #loop(gen) {
     let delay = 60_000;
     try {
-      delay = await this.#tick();
+      delay = await this.#tick(gen);
       this.lastError = null;
     } catch (err) {
       this.lastError = err.message;
       this.emit('error', err);
       delay = 15_000;
     }
-    this.timer = setTimeout(() => this.#loop(), delay);
+    // Une boucle d'une équipe précédente (restart pendant une requête) s'arrête là
+    if (gen === this.gen) this.timer = setTimeout(() => this.#loop(gen), delay);
   }
 
-  async #tick() {
+  async #tick(gen) {
     const cfg = this.getConfig();
     let gameId = cfg.nhl.gameId;
     if (!gameId) {
@@ -50,6 +61,7 @@ export class NhlService extends Emitter {
       const stale = !this.scheduleGame || Date.now() - (this.scheduleAt ?? 0) > 600_000;
       if (stale) {
         const sched = await this.#get(`/v1/club-schedule/${cfg.team}/week/now`);
+        if (gen !== this.gen) return 60_000;
         this.scheduleGame = pickGame(sched);
         this.scheduleAt = Date.now();
         this.emit('schedule', this.scheduleGame);
@@ -65,6 +77,7 @@ export class NhlService extends Emitter {
     }
 
     const pbp = await this.#get(`/v1/gamecenter/${gameId}/play-by-play`);
+    if (gen !== this.gen) return 60_000;
     const game = normalizeGame(pbp, cfg.team);
     if (game) {
       game.tvBroadcasts = this.scheduleGame?.id === game.id ? this.scheduleGame.tvBroadcasts ?? [] : [];

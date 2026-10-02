@@ -2,9 +2,9 @@
 // Tout ce qui est réglable dans l'app vit ici (le panneau Réglages est généré à partir de SETTINGS_SCHEMA).
 
 export const DEFAULT_CONFIG = {
-  team: 'MTL',
-  // Mots-clés pour retrouver le match des Canadiens dans la liste OnHockey.tv
-  teamKeywords: ['montreal', 'montréal', 'canadiens', 'canadien', 'habs', 'mtl'],
+  team: 'MTL', // équipe suivie (code LNH)
+  // Mots-clés en plus de ceux de l'équipe pour repérer son match sur OnHockey.tv
+  extraKeywords: [],
 
   stream: {
     homeUrl: 'https://onhockey.tv/',
@@ -18,6 +18,8 @@ export const DEFAULT_CONFIG = {
     theatreMode: true, // isole le lecteur et masque le reste de la page
     blockPopups: true,
     adblock: true,
+    adblockExceptions: [], // sites où le bloqueur de pubs est coupé (lecteurs qui refusent de démarrer)
+    allowedSites: [], // sites autorisés à la main ("Autoriser ce site")
     alwaysOnTop: false,
     customStreams: [], // [{ url, label, lang }]
   },
@@ -46,6 +48,8 @@ export const DEFAULT_CONFIG = {
 
   regie: {
     playerCard: true,
+    playerStyle: 'card', // 'card' (photo + nom) | 'name' (nom seulement) | 'emoji' (tête émoji)
+    playerSource: 'voice+api', // 'voice+api' (commentateur + LNH) | 'api' (LNH seulement)
     playerCardFilter: 'team', // 'team' | 'all'
     playerCardSec: 5,
     tensionFx: true,
@@ -54,6 +58,14 @@ export const DEFAULT_CONFIG = {
     celebrationSec: 9,
     confetti: true,
     opponentGoalBanner: true,
+  },
+
+  // Reconnaissance des noms prononcés par le commentateur (Whisper, hors ligne après téléchargement)
+  voice: {
+    enabled: true,
+    model: 'base', // 'tiny' | 'base' | 'small'
+    language: 'auto', // 'auto' (langue du stream) | 'fr' | 'en'
+    device: 'auto', // 'auto' | 'webgpu' | 'wasm'
   },
 
   sync: {
@@ -115,6 +127,10 @@ export function setPath(obj, path, value) {
 // Schéma du panneau Réglages. type: bool | number | select | text | file
 export const SETTINGS_SCHEMA = [
   {
+    title: 'Équipe',
+    items: [{ path: 'team', label: 'Équipe suivie', type: 'select', options: 'teams' }],
+  },
+  {
     title: 'Stream',
     items: [
       { path: 'stream.homeUrl', label: 'Page OnHockey.tv', type: 'text' },
@@ -135,7 +151,7 @@ export const SETTINGS_SCHEMA = [
       },
       { path: 'stream.theatreMode', label: 'Mode théâtre (lecteur seul, plein cadre)', type: 'bool' },
       { path: 'stream.blockPopups', label: 'Bloquer les pop-ups et redirections', type: 'bool' },
-      { path: 'stream.adblock', label: 'Bloqueur de pubs web (redémarrage requis)', type: 'bool' },
+      { path: 'stream.adblock', label: 'Bloqueur de pubs web', type: 'bool' },
       { path: 'stream.alwaysOnTop', label: 'Fenêtre toujours au premier plan', type: 'bool' },
     ],
   },
@@ -175,7 +191,26 @@ export const SETTINGS_SCHEMA = [
   {
     title: 'Régie',
     items: [
-      { path: 'regie.playerCard', label: 'Carte du joueur impliqué (style FIFA)', type: 'bool' },
+      { path: 'regie.playerCard', label: 'Afficher le joueur à la rondelle (style FIFA)', type: 'bool' },
+      {
+        path: 'regie.playerStyle',
+        label: 'Affichage du joueur',
+        type: 'select',
+        options: [
+          { value: 'card', label: 'Carte (photo + nom)' },
+          { value: 'name', label: 'Nom seulement' },
+          { value: 'emoji', label: 'Tête émoji' },
+        ],
+      },
+      {
+        path: 'regie.playerSource',
+        label: 'Qui a la rondelle ?',
+        type: 'select',
+        options: [
+          { value: 'voice+api', label: 'Voix du commentateur + données LNH' },
+          { value: 'api', label: 'Données LNH seulement' },
+        ],
+      },
       {
         path: 'regie.playerCardFilter',
         label: 'Joueurs affichés',
@@ -192,6 +227,42 @@ export const SETTINGS_SCHEMA = [
       { path: 'regie.celebrationSec', label: 'Durée de la célébration (s)', type: 'number', min: 3, max: 30 },
       { path: 'regie.confetti', label: 'Confettis', type: 'bool' },
       { path: 'regie.opponentGoalBanner', label: 'Bandeau pour les buts adverses', type: 'bool' },
+    ],
+  },
+  {
+    title: 'Voix du commentateur',
+    items: [
+      { path: 'voice.enabled', label: 'Reconnaître les noms dits par le commentateur', type: 'bool' },
+      {
+        path: 'voice.model',
+        label: 'Modèle (téléchargé une fois)',
+        type: 'select',
+        options: [
+          { value: 'tiny', label: 'Rapide (~40 Mo)' },
+          { value: 'base', label: 'Équilibré (~80 Mo)' },
+          { value: 'small', label: 'Précis (~250 Mo, carte graphique)' },
+        ],
+      },
+      {
+        path: 'voice.language',
+        label: 'Langue du commentaire',
+        type: 'select',
+        options: [
+          { value: 'auto', label: 'Celle du stream' },
+          { value: 'fr', label: 'Français' },
+          { value: 'en', label: 'Anglais' },
+        ],
+      },
+      {
+        path: 'voice.device',
+        label: 'Calcul',
+        type: 'select',
+        options: [
+          { value: 'auto', label: 'Automatique' },
+          { value: 'webgpu', label: 'Carte graphique (WebGPU)' },
+          { value: 'wasm', label: 'Processeur' },
+        ],
+      },
     ],
   },
   {

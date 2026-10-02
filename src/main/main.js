@@ -1,11 +1,12 @@
-import { app, BrowserWindow, dialog, ipcMain, net, session, webContents } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, session, shell, webContents } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { APP_ORIGIN, handleAppProtocol, registerSchemes } from './appProtocol.js';
 import { ConfigStore } from './configStore.js';
-import { STREAM_PARTITION, cleanUserAgent, createStreamSession, guardGuest, hostAllowed, hostOf } from './streamSession.js';
+import { hostOf } from '../shared/navPolicy.js';
+import { EventLog, STREAM_PARTITION, cleanUserAgent, createStreamSession, guardGuest } from './streamSession.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '../..');
@@ -13,8 +14,8 @@ const AGENT_PRELOAD = path.join(ROOT, 'src/agent/frame-agent.cjs');
 const SHELL_PRELOAD = path.join(__dirname, 'preload-shell.cjs');
 const DEMO = process.argv.includes('--demo');
 
-// Raccourcis transmis à l'interface même quand le focus est dans la page du stream
-const HOTKEYS = new Set(['f', 'f11', 'n', 'p', 'm', 'g', 'b', 's', 'c', 't', 'h', 'd', '+', '=', '-', 'escape']);
+// Profil isolé (tests automatiques)
+if (process.env.HABS_USER_DATA) app.setPath('userData', process.env.HABS_USER_DATA);
 
 app.userAgentFallback = cleanUserAgent(app.userAgentFallback);
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -23,25 +24,29 @@ registerSchemes();
 
 const config = new ConfigStore(app.getPath('userData'));
 const navPolicy = { blockPopups: true, allowedHosts: new Set(), knownStreams: new Set() };
+const log = new EventLog();
 let win = null;
+let adblock = null;
+let guestId = null;
 
 function notify(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-function applyWindowPrefs(cfg) {
-  if (!win) return;
-  win.setAlwaysOnTop(!!cfg.stream.alwaysOnTop, 'floating');
+function applyPrefs(cfg) {
   navPolicy.blockPopups = !!cfg.stream.blockPopups;
+  navPolicy.allowedHosts.add(hostOf(cfg.stream.homeUrl));
+  for (const h of cfg.stream.allowedSites) if (h) navPolicy.allowedHosts.add(String(h).replace(/^www\./, ''));
+  adblock?.configure({ enabled: cfg.stream.adblock && !DEMO, exceptions: cfg.stream.adblockExceptions });
+  if (win) win.setAlwaysOnTop(!!cfg.stream.alwaysOnTop, 'floating');
 }
 
 async function createWindow() {
   const cfg = await config.load();
-  navPolicy.blockPopups = cfg.stream.blockPopups;
-  navPolicy.allowedHosts.add(hostOf(cfg.stream.homeUrl));
-
-  const { ses } = await createStreamSession({ userData: app.getPath('userData'), adblock: cfg.stream.adblock && !DEMO });
-  handleAppProtocol(ROOT, ses);
+  const stream = await createStreamSession({ userData: app.getPath('userData'), log });
+  adblock = stream.adblock;
+  handleAppProtocol(ROOT, stream.ses);
+  applyPrefs(cfg);
 
   win = new BrowserWindow({
     width: 1440,
@@ -63,7 +68,7 @@ async function createWindow() {
     },
   });
   win.once('ready-to-show', () => win.show());
-  applyWindowPrefs(cfg);
+  applyPrefs(cfg);
 
   // Seule la <webview> du stream est autorisée, avec notre agent et une config verrouillée
   win.webContents.on('will-attach-webview', (event, wp, params) => {
@@ -83,18 +88,8 @@ async function createWindow() {
   });
 
   win.webContents.on('did-attach-webview', (_e, guest) => {
-    guardGuest(guest, {
-      getPolicy: () => navPolicy,
-      notify,
-      isKnownStream: (url) => navPolicy.knownStreams.has(url) || hostAllowed(hostOf(url), navPolicy.allowedHosts),
-    });
-    guest.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || input.control || input.alt || input.meta) return;
-      const key = input.key.toLowerCase();
-      if (!HOTKEYS.has(key)) return;
-      event.preventDefault();
-      notify('hotkey', { key });
-    });
+    guestId = guest.id;
+    guardGuest(guest, { policy: navPolicy, notify, log });
   });
 
   // L'interface elle-même ne navigue jamais ailleurs
@@ -111,7 +106,7 @@ ipcMain.handle('app:info', () => ({ demo: DEMO, version: app.getVersion(), platf
 ipcMain.handle('config:get', () => config.data);
 ipcMain.handle('config:set', (_e, next) => {
   const data = config.set(next);
-  applyWindowPrefs(data);
+  applyPrefs(data);
   return data;
 });
 
@@ -143,9 +138,29 @@ ipcMain.handle('page:fetch', async (_e, url) => {
 });
 
 ipcMain.handle('nav:allow', (_e, { hosts = [], streams = [] } = {}) => {
-  for (const h of hosts) if (typeof h === 'string' && h) navPolicy.allowedHosts.add(h.replace(/^www\./, ''));
-  for (const s of streams) if (typeof s === 'string') navPolicy.knownStreams.add(s);
+  for (const h of hosts) if (typeof h === 'string' && h) navPolicy.allowedHosts.add(h.replace(/^www\./, '').toLowerCase());
+  for (const s of streams) if (typeof s === 'string') navPolicy.knownStreams.add(s.replace(/#.*$/, ''));
   return [...navPolicy.allowedHosts];
+});
+
+// Ouvrir le stream dans le navigateur de l'ordinateur (dernier recours)
+ipcMain.handle('open-external', (_e, url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
+  shell.openExternal(url);
+  return true;
+});
+
+// Diagnostic : ce que le process principal a vu (pop-ups, redirections, pubs bloquées)
+ipcMain.handle('diag:main', () => {
+  const guest = guestId ? webContents.fromId(guestId) : null;
+  const top = hostOf(guest?.getURL?.() ?? '');
+  return {
+    versions: { app: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome, os: `${process.platform} ${process.arch}` },
+    page: guest?.getURL?.() ?? null,
+    events: log.items.slice(-60),
+    adblock: adblock?.report(top) ?? null,
+    allowedHosts: [...navPolicy.allowedHosts].slice(0, 80),
+  };
 });
 
 ipcMain.handle('win:fullscreen', (_e, value) => {

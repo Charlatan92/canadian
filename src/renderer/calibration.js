@@ -5,7 +5,7 @@ import { esc } from './util.js';
 const STEPS = [
   { key: 'scorebug', label: '1. Tableau de score', color: '#ffd166', help: 'Encadrez tout le tableau de score (noms, scores, période, horloge). Il sert à détecter les pubs : quand il disparaît, c\'est la pause.' },
   { key: 'clock', label: '2. Horloge', color: '#06d6a0', help: 'Encadrez seulement le temps restant (ex. 12:34). Il sert à synchroniser la régie avec votre stream, sans divulgâcheur.' },
-  { key: 'scoreTeam', label: '3. Score du CH', color: '#ef476f', help: 'Encadrez le chiffre du score des Canadiens (facultatif : confirme les buts directement à l\'écran).' },
+  { key: 'scoreTeam', label: '3. Score de votre équipe', color: '#ef476f', help: 'Encadrez le chiffre du score de l\'équipe suivie (facultatif : confirme les buts directement à l\'écran).' },
   { key: 'scoreOpp', label: '4. Score adverse', color: '#118ab2', help: 'Encadrez le chiffre du score de l\'adversaire (facultatif).' },
 ];
 

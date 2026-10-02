@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fake hockey streams</title></head>
+<body style="font:16px sans-serif;background:#eee">
+  <h1>Hockey streams (page de test)</h1>
+  <table id="games">
+    <tr><td colspan="3">NHL: Boston Bruins - New York Rangers 19:00</td></tr>
+    <tr>
+      <td><a id="same" href="PLAYER_URL">Link 1</a></td>
+      <td><a id="blank" target="_blank" href="PLAYER_URL?tab=1">Link 2 (nouvel onglet)</a></td>
+      <td><a id="js" href="#" onclick="window.open('PLAYER_URL?js=1'); return false;">Link 3 (window.open)</a></td>
+    </tr>
+  </table>
+  <script>
+    // Pub qui tente de rediriger la page toute seule, sans clic
+    if (location.hash === '#redirect') setTimeout(() => (location.href = 'http://ads.invalid/landing'), 300);
+  </script>
+</body>
+</html>

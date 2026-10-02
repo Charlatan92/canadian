@@ -16,26 +16,49 @@ const send = (msg) => {
 };
 
 // ---------------------------------------------------------------------------
-// 1. Correctifs dans le "monde" de la page : plein écran détourné, pop-ups et alertes neutralisées
+// 1. Correctifs dans le "monde" de la page : plein écran détourné, pop-ups désamorcées
 // ---------------------------------------------------------------------------
 
 const MAIN_WORLD_PATCH = `(() => {
   if (window.__habsPatched) return;
-  window.__habsPatched = true;
-  const fire = (action) => document.dispatchEvent(new CustomEvent('__habs_fs', { detail: action }));
-  const enter = function () { fire('enter'); return Promise.resolve(); };
-  const exit = function () { fire('exit'); return Promise.resolve(); };
-  const def = (obj, name, value) => { try { Object.defineProperty(obj, name, { value, configurable: true, writable: true }); } catch (e) {} };
-  for (const n of ['requestFullscreen', 'webkitRequestFullscreen', 'webkitRequestFullScreen', 'mozRequestFullScreen']) def(Element.prototype, n, enter);
-  def(HTMLVideoElement.prototype, 'webkitEnterFullscreen', enter);
-  def(HTMLVideoElement.prototype, 'webkitEnterFullScreen', enter);
-  for (const n of ['exitFullscreen', 'webkitExitFullscreen', 'webkitCancelFullScreen']) def(Document.prototype, n, exit);
-  if (window.__habsBlockPopups !== false) {
-    def(window, 'open', function () { return null; });
-    def(window, 'alert', function () {});
-    def(window, 'confirm', function () { return false; });
-    def(window, 'prompt', function () { return null; });
-  }
+  try { Object.defineProperty(window, '__habsPatched', { value: true }); } catch (e) {}
+  const emit = (name, detail) => document.dispatchEvent(new CustomEvent(name, { detail }));
+  // Remplace une fonction native par un Proxy : la page voit toujours "[native code]"
+  const hook = (obj, name, impl) => {
+    try {
+      const orig = obj[name];
+      const value = typeof orig === 'function' ? new Proxy(orig, { apply: (_t, self, args) => impl.apply(self, args) }) : impl;
+      Object.defineProperty(obj, name, { value, configurable: true, writable: true });
+    } catch (e) {}
+  };
+  const enter = function () { emit('__habs_fs', 'enter'); return Promise.resolve(); };
+  const exit = function () { emit('__habs_fs', 'exit'); return Promise.resolve(); };
+  for (const n of ['requestFullscreen', 'webkitRequestFullscreen', 'webkitRequestFullScreen', 'mozRequestFullScreen']) hook(Element.prototype, n, enter);
+  hook(HTMLVideoElement.prototype, 'webkitEnterFullscreen', enter);
+  hook(HTMLVideoElement.prototype, 'webkitEnterFullScreen', enter);
+  for (const n of ['exitFullscreen', 'webkitExitFullscreen', 'webkitCancelFullScreen']) hook(Document.prototype, n, exit);
+
+  // Pop-ups : au lieu de null, on rend une vraie fenêtre "leurre" (about:blank invisible, sans
+  // scripts). Beaucoup de lecteurs ouvrent un pop-under au 1er clic puis font w.blur() : avec
+  // null ils plantent et ne démarrent jamais. L'interface décide ensuite si l'adresse était légitime.
+  const decoy = () => {
+    const f = document.createElement('iframe');
+    f.setAttribute('sandbox', 'allow-same-origin');
+    f.setAttribute('aria-hidden', 'true');
+    f.style.cssText = 'position:fixed!important;left:-10000px!important;top:-10000px!important;width:1px!important;height:1px!important;border:0!important;opacity:0!important;pointer-events:none!important';
+    (document.body || document.documentElement).appendChild(f);
+    setTimeout(() => f.remove(), 15000);
+    return f.contentWindow;
+  };
+  hook(window, 'open', function (url) {
+    let abs = '';
+    try { abs = url ? new URL(String(url), location.href).href : ''; } catch (e) {}
+    emit('__habs_popup', abs);
+    return decoy();
+  });
+  hook(window, 'alert', function () {});
+  hook(window, 'confirm', function () { return true; });
+  hook(window, 'prompt', function (_m, def) { return def ?? ''; });
 })();`;
 
 try {
@@ -44,6 +67,49 @@ try {
   /* ignore */
 }
 document.addEventListener('__habs_fs', (e) => send({ type: 'fullscreen', action: e.detail }));
+
+// Le process principal autorise une navigation ou une nouvelle fenêtre seulement si elle vient
+// d'un vrai clic de l'utilisateur sur un lien : on lui signale ces clics (pas ceux des scripts).
+function onTrustedClick(e) {
+  if (!e.isTrusted) return;
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+  const a = path.find((n) => n && n.tagName === 'A' && n.href) || (e.target && e.target.closest && e.target.closest('a[href]'));
+  if (!a || !a.href || /^javascript:/i.test(a.href)) return;
+  try {
+    ipcRenderer.send('habs:intent', { url: a.href });
+  } catch {
+    /* ignore */
+  }
+}
+window.addEventListener('click', onTrustedClick, true);
+window.addEventListener('auxclick', onTrustedClick, true);
+
+document.addEventListener('__habs_popup', (e) => {
+  const activated = !!(navigator.userActivation && navigator.userActivation.isActive);
+  try {
+    ipcRenderer.send('habs:popup', { url: e.detail, activated });
+  } catch {
+    /* ignore */
+  }
+  send({ type: 'popup', url: e.detail, activated });
+});
+
+// Raccourcis de l'app, même quand le focus est dans la page (sauf dans un champ de saisie)
+const HOTKEYS = new Set(['f', 'f11', 'n', 'p', 'm', 'g', 'b', 's', 'c', 't', 'h', 'd', '+', '=', '-', 'escape']);
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!e.isTrusted || e.ctrlKey || e.altKey || e.metaKey) return;
+    const key = String(e.key || '').toLowerCase();
+    if (!HOTKEYS.has(key)) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName || ''))) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    send({ type: 'hotkey', key });
+  },
+  true,
+);
 
 // ---------------------------------------------------------------------------
 // 2. Suivi de la vidéo
@@ -196,7 +262,8 @@ const audio = {
   },
 
   async attach(v) {
-    if (!v || !this.mode || this.nodes?.video === v || this.failed === v) return;
+    // Rappelé à l'événement 'playing' : on attend une image pour tester l'origine de la vidéo
+    if (!v || !this.mode || this.nodes?.video === v || this.failed === v || v.readyState < 2) return;
     try {
       this.ctx ??= new AudioContext({ latencyHint: 'playback' });
       if (this.ctx.state !== 'running') await this.ctx.resume();
@@ -478,18 +545,8 @@ const theatre = {
         bestArea = a;
       }
     }
-    if (best && best.tagName === 'VIDEO') {
-      // On prend le conteneur du lecteur (avec ses contrôles), pas seulement la balise <video>
-      const r = best.getBoundingClientRect();
-      let el = best;
-      while (el.parentElement && el.parentElement !== document.body) {
-        const pr = el.parentElement.getBoundingClientRect();
-        if (pr.width > r.width * 1.15 || pr.height > r.height * 1.25) break;
-        el = el.parentElement;
-      }
-      best = el;
-    }
-    return best;
+    // On prend le conteneur du lecteur (avec ses contrôles), pas seulement la balise <video>
+    return best && best.tagName === 'VIDEO' ? containerOf(best) : best;
   },
 
   apply() {
@@ -522,26 +579,66 @@ const theatre = {
 const guard = {
   enabled: true,
   sweep() {
-    if (!this.enabled || !document.body) return;
-    const vw = innerWidth;
-    const vh = innerHeight;
+    if (!this.enabled || !IS_TOP || !document.body) return;
+    const player = playerRoot();
+    if (!player) return;
+    const pr = player.getBoundingClientRect();
+    if (pr.width * pr.height < 160 * 90) return;
     for (const el of document.body.querySelectorAll('body > *, body > * > *')) {
-      if (el.hasAttribute('data-habs-theatre') || el.hasAttribute('data-habs-chain') || el.hasAttribute('data-habs-hidden')) continue;
-      if (el.querySelector('video, iframe, [data-habs-theatre]') || el.tagName === 'VIDEO' || el.tagName === 'IFRAME') continue;
+      if (el === player || el.contains(player) || player.contains(el)) continue;
+      if (el.hasAttribute('data-habs-hidden') || el.matches('video, iframe, [data-habs-theatre], [data-habs-chain]')) continue;
+      if (el.querySelector('video, iframe')) continue;
       const cs = getComputedStyle(el);
       if (cs.position !== 'fixed' && cs.position !== 'absolute') continue;
-      const z = parseInt(cs.zIndex, 10);
-      if (!(z >= 999)) continue;
+      if (cs.pointerEvents === 'none' || cs.display === 'none' || cs.visibility === 'hidden') continue;
+      if (!(parseInt(cs.zIndex, 10) >= 100)) continue;
+      // Il doit recouvrir au moins la moitié du lecteur...
       const r = el.getBoundingClientRect();
-      if (r.width * r.height < vw * vh * 0.4) continue;
-      const transparent = parseFloat(cs.opacity) < 0.15 || (cs.backgroundColor === 'rgba(0, 0, 0, 0)' && !el.textContent.trim());
-      if (!transparent) continue;
+      const ix = Math.max(0, Math.min(r.right, pr.right) - Math.max(r.left, pr.left));
+      const iy = Math.max(0, Math.min(r.bottom, pr.bottom) - Math.max(r.top, pr.top));
+      if (ix * iy < pr.width * pr.height * 0.5) continue;
+      // ... et être invisible (un vrai bouton, une image ou du texte n'est jamais retiré)
+      const invisible =
+        parseFloat(cs.opacity) < 0.15 ||
+        (isTransparent(cs.backgroundColor) && cs.backgroundImage === 'none' && !el.textContent.trim() && !el.querySelector('img, svg, canvas, button, picture'));
+      if (!invisible) continue;
       el.setAttribute('data-habs-hidden', '1');
       el.style.setProperty('display', 'none', 'important');
-      send({ type: 'overlay-removed', tag: el.tagName });
+      send({ type: 'overlay-removed', tag: el.tagName, id: el.id || '' });
     }
   },
 };
+
+function isTransparent(color) {
+  return color === 'transparent' || /rgba\([^)]*,\s*0\)$/.test(color);
+}
+
+// Le "lecteur" de la page : la plus grande vidéo (avec son conteneur) ou iframe visible
+function playerRoot() {
+  if (theatre.target && theatre.target.isConnected) return theatre.target;
+  let best = null;
+  let bestArea = 0;
+  for (const el of document.querySelectorAll('iframe, video')) {
+    const a = visibleArea(el);
+    if (a > bestArea) {
+      best = el;
+      bestArea = a;
+    }
+  }
+  return best && best.tagName === 'VIDEO' ? containerOf(best) : best;
+}
+
+// On remonte de la <video> à son conteneur (contrôles du lecteur compris) tant que la taille colle
+function containerOf(video) {
+  const r = video.getBoundingClientRect();
+  let el = video;
+  while (el.parentElement && el.parentElement !== document.body && el.parentElement !== document.documentElement) {
+    const pr = el.parentElement.getBoundingClientRect();
+    if (pr.width > r.width * 1.15 || pr.height > r.height * 1.25) break;
+    el = el.parentElement;
+  }
+  return el;
+}
 
 // ---------------------------------------------------------------------------
 // 7. Ordres de l'interface

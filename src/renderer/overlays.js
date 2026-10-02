@@ -125,7 +125,7 @@ export class Celebration {
            <div><div class="cel-name">${esc(player.first)} ${esc(player.last)} <span style="opacity:.7">#${esc(player.number ?? '')}</span></div>
            ${lines.filter(Boolean).map((l) => `<div class="cel-line">${esc(l)}</div>`).join('')}</div>
          </div>`
-      : `<div class="cel-scorer"><div><div class="cel-name">But des Canadiens !</div><div class="cel-line">Go Habs Go !</div></div></div>`;
+      : `<div class="cel-scorer"><div><div class="cel-name">But des ${esc(game?.team?.name ?? 'Canadiens')} !</div><div class="cel-line">${game?.team?.abbrev === 'MTL' || !game ? 'Go Habs Go !' : 'Quel but !'}</div></div></div>`;
     this.el.querySelectorAll('.cel-flash, .cel-word, .cel-scorer').forEach((n) => n.remove());
     this.el.insertAdjacentHTML('beforeend', `<div class="cel-flash"></div><div class="cel-word">BUT !</div>${scorer}`);
     this.el.classList.add('show');

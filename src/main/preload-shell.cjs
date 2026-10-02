@@ -1,7 +1,7 @@
 // Pont entre l'interface (renderer isolé) et le process principal.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = new Set(['hotkey', 'nav-blocked', 'popup-blocked', 'popup-redirected', 'guest-fullscreen']);
+const EVENTS = new Set(['nav-blocked', 'popup-blocked', 'popup-redirected', 'guest-fullscreen']);
 
 contextBridge.exposeInMainWorld('habs', {
   info: () => ipcRenderer.invoke('app:info'),
@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('habs', {
   pickAudioFile: () => ipcRenderer.invoke('dialog:openAudio'),
   readAudio: (which) => ipcRenderer.invoke('file:readAudio', which),
   captureGuest: (id, opts) => ipcRenderer.invoke('capture:guest', id, opts),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  diagnostics: () => ipcRenderer.invoke('diag:main'),
   on: (channel, cb) => {
     if (!EVENTS.has(channel)) throw new Error(`Événement inconnu : ${channel}`);
     const listener = (_e, payload) => cb(payload);

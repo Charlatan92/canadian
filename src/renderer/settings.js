@@ -1,4 +1,11 @@
 import { DEFAULT_CONFIG, SETTINGS_SCHEMA, getPath, setPath } from '../shared/config.js';
+import { TEAMS, teamLabel } from '../shared/nhl.js';
+
+const TEAM_OPTIONS = Object.keys(TEAMS)
+  .map((code) => ({ value: code, label: teamLabel(code) }))
+  .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+
+const optionsOf = (it) => (it.options === 'teams' ? TEAM_OPTIONS : it.options);
 import { esc } from './util.js';
 
 const KEYS = [
@@ -70,8 +77,15 @@ export class SettingsPanel {
       </div>
       <h3>Raccourcis</h3>
       <div class="keys">${KEYS.map(([k, d]) => `<span><kbd>${esc(k)}</kbd></span><span>${esc(d)}</span>`).join('')}</div>
-      <h3>Divers</h3>
-      <div class="btn-row"><button data-act="reset">Réinitialiser les réglages</button></div>`;
+      <h3>Dépannage</h3>
+      <ul class="custom-streams">${
+        cfg.stream.adblockExceptions.map((h, i) => `<li><span>Bloqueur coupé sur ${esc(h)}</span><button data-act="adx-del" data-i="${i}">×</button></li>`).join('') ||
+        '<li><span class="muted">Bloqueur de pubs actif partout</span></li>'
+      }</ul>
+      <div class="btn-row">
+        <button data-act="diag">Copier le diagnostic</button>
+        <button data-act="reset">Réinitialiser les réglages</button>
+      </div>`;
   }
 
   #field(it, value) {
@@ -86,7 +100,7 @@ export class SettingsPanel {
         break;
       case 'select': {
         const cur = JSON.stringify(value);
-        input = `<select id="${id}" data-path="${it.path}">${it.options
+        input = `<select id="${id}" data-path="${it.path}">${optionsOf(it)
           .map((o) => `<option value='${esc(JSON.stringify(o.value))}' ${JSON.stringify(o.value) === cur ? 'selected' : ''}>${esc(o.label)}</option>`)
           .join('')}</select>`;
         break;
@@ -185,6 +199,13 @@ export class SettingsPanel {
         await this.#save((cfg) => cfg.stream.customStreams.splice(Number(b.dataset.i), 1));
         this.actions.refreshStreams();
         this.render();
+        break;
+      case 'adx-del':
+        await this.#save((cfg) => cfg.stream.adblockExceptions.splice(Number(b.dataset.i), 1));
+        this.render();
+        break;
+      case 'diag':
+        this.actions.copyDiagnostics();
         break;
       case 'reset':
         await this.saveConfig(structuredClone(DEFAULT_CONFIG));

@@ -1,40 +1,51 @@
 // Lecture des données de l'API publique et gratuite de la LNH (api-web.nhle.com).
 // Tout est défensif : l'API n'est pas documentée officiellement et ses champs peuvent bouger.
 
+// Équipes : nom, ville (en français), couleurs, mots-clés pour repérer leur match sur OnHockey.
+// Les abréviations ambiguës (CAR, MIN, VAN...) ne servent pas de mot-clé : « 20 min » n'est pas le Wild.
 export const TEAMS = {
-  ANA: { name: 'Ducks', color: '#F47A38', alt: '#B9975B' },
-  BOS: { name: 'Bruins', color: '#FFB81C', alt: '#111111' },
-  BUF: { name: 'Sabres', color: '#003087', alt: '#FFB81C' },
-  CAR: { name: 'Hurricanes', color: '#CE1126', alt: '#111111' },
-  CBJ: { name: 'Blue Jackets', color: '#002654', alt: '#CE1126' },
-  CGY: { name: 'Flames', color: '#C8102E', alt: '#F1BE48' },
-  CHI: { name: 'Blackhawks', color: '#CF0A2C', alt: '#111111' },
-  COL: { name: 'Avalanche', color: '#6F263D', alt: '#236192' },
-  DAL: { name: 'Stars', color: '#006847', alt: '#8F8F8C' },
-  DET: { name: 'Red Wings', color: '#CE1126', alt: '#FFFFFF' },
-  EDM: { name: 'Oilers', color: '#041E42', alt: '#FF4C00' },
-  FLA: { name: 'Panthers', color: '#041E42', alt: '#C8102E' },
-  LAK: { name: 'Kings', color: '#111111', alt: '#A2AAAD' },
-  MIN: { name: 'Wild', color: '#154734', alt: '#A6192E' },
-  MTL: { name: 'Canadiens', color: '#AF1E2D', alt: '#192168' },
-  NJD: { name: 'Devils', color: '#CE1126', alt: '#111111' },
-  NSH: { name: 'Predators', color: '#FFB81C', alt: '#041E42' },
-  NYI: { name: 'Islanders', color: '#00539B', alt: '#F47D30' },
-  NYR: { name: 'Rangers', color: '#0038A8', alt: '#CE1126' },
-  OTT: { name: 'Sénateurs', color: '#C52032', alt: '#C2912C' },
-  PHI: { name: 'Flyers', color: '#F74902', alt: '#111111' },
-  PIT: { name: 'Penguins', color: '#FCB514', alt: '#111111' },
-  SEA: { name: 'Kraken', color: '#001628', alt: '#99D9D9' },
-  SJS: { name: 'Sharks', color: '#006D75', alt: '#EA7200' },
-  STL: { name: 'Blues', color: '#002F87', alt: '#FCB514' },
-  TBL: { name: 'Lightning', color: '#002868', alt: '#FFFFFF' },
-  TOR: { name: 'Maple Leafs', color: '#00205B', alt: '#FFFFFF' },
-  UTA: { name: 'Mammoth', color: '#71AFE5', alt: '#090909' },
-  VAN: { name: 'Canucks', color: '#00205B', alt: '#00843D' },
-  VGK: { name: 'Golden Knights', color: '#B4975A', alt: '#333F42' },
-  WPG: { name: 'Jets', color: '#041E42', alt: '#AC162C' },
-  WSH: { name: 'Capitals', color: '#C8102E', alt: '#041E42' },
+  ANA: { name: 'Ducks', city: 'Anaheim', color: '#F47A38', alt: '#B9975B', keywords: ['anaheim', 'ducks', 'ana'] },
+  BOS: { name: 'Bruins', city: 'Boston', color: '#FFB81C', alt: '#111111', keywords: ['boston', 'bruins', 'bos'] },
+  BUF: { name: 'Sabres', city: 'Buffalo', color: '#003087', alt: '#FFB81C', keywords: ['buffalo', 'sabres', 'buf'] },
+  CAR: { name: 'Hurricanes', city: 'Caroline', color: '#CE1126', alt: '#111111', keywords: ['carolina', 'caroline', 'hurricanes'] },
+  CBJ: { name: 'Blue Jackets', city: 'Columbus', color: '#002654', alt: '#CE1126', keywords: ['columbus', 'blue jackets', 'cbj'] },
+  CGY: { name: 'Flames', city: 'Calgary', color: '#C8102E', alt: '#F1BE48', keywords: ['calgary', 'flames', 'cgy'] },
+  CHI: { name: 'Blackhawks', city: 'Chicago', color: '#CF0A2C', alt: '#111111', keywords: ['chicago', 'blackhawks', 'chi'] },
+  COL: { name: 'Avalanche', city: 'Colorado', color: '#6F263D', alt: '#236192', keywords: ['colorado', 'avalanche'] },
+  DAL: { name: 'Stars', city: 'Dallas', color: '#006847', alt: '#8F8F8C', keywords: ['dallas'] },
+  DET: { name: 'Red Wings', city: 'Détroit', color: '#CE1126', alt: '#FFFFFF', keywords: ['detroit', 'red wings'] },
+  EDM: { name: 'Oilers', city: 'Edmonton', color: '#041E42', alt: '#FF4C00', keywords: ['edmonton', 'oilers', 'edm'] },
+  FLA: { name: 'Panthers', city: 'Floride', color: '#041E42', alt: '#C8102E', keywords: ['florida', 'floride', 'panthers', 'fla'] },
+  LAK: { name: 'Kings', city: 'Los Angeles', color: '#111111', alt: '#A2AAAD', keywords: ['los angeles', 'la kings', 'lak'] },
+  MIN: { name: 'Wild', city: 'Minnesota', color: '#154734', alt: '#A6192E', keywords: ['minnesota'] },
+  MTL: { name: 'Canadiens', city: 'Montréal', color: '#AF1E2D', alt: '#192168', keywords: ['montreal', 'canadiens', 'canadien', 'habs', 'mtl'] },
+  NJD: { name: 'Devils', city: 'New Jersey', color: '#CE1126', alt: '#111111', keywords: ['new jersey', 'devils', 'njd'] },
+  NSH: { name: 'Predators', city: 'Nashville', color: '#FFB81C', alt: '#041E42', keywords: ['nashville', 'predators', 'nsh'] },
+  NYI: { name: 'Islanders', city: 'New York', color: '#00539B', alt: '#F47D30', keywords: ['islanders', 'nyi'] },
+  NYR: { name: 'Rangers', city: 'New York', color: '#0038A8', alt: '#CE1126', keywords: ['ny rangers', 'new york rangers', 'nyr'] },
+  OTT: { name: 'Sénateurs', city: 'Ottawa', color: '#C52032', alt: '#C2912C', keywords: ['ottawa', 'senators', 'senateurs', 'ott'] },
+  PHI: { name: 'Flyers', city: 'Philadelphie', color: '#F74902', alt: '#111111', keywords: ['philadelphia', 'philadelphie', 'flyers', 'phi'] },
+  PIT: { name: 'Penguins', city: 'Pittsburgh', color: '#FCB514', alt: '#111111', keywords: ['pittsburgh', 'penguins', 'pit'] },
+  SEA: { name: 'Kraken', city: 'Seattle', color: '#001628', alt: '#99D9D9', keywords: ['seattle', 'kraken'] },
+  SJS: { name: 'Sharks', city: 'San Jose', color: '#006D75', alt: '#EA7200', keywords: ['san jose', 'sharks', 'sjs'] },
+  STL: { name: 'Blues', city: 'St. Louis', color: '#002F87', alt: '#FCB514', keywords: ['st louis', 'st. louis', 'saint-louis', 'stl'] },
+  TBL: { name: 'Lightning', city: 'Tampa Bay', color: '#002868', alt: '#FFFFFF', keywords: ['tampa', 'lightning', 'tbl'] },
+  TOR: { name: 'Maple Leafs', city: 'Toronto', color: '#00205B', alt: '#FFFFFF', keywords: ['toronto', 'maple leafs', 'leafs', 'tor'] },
+  UTA: { name: 'Mammoth', city: 'Utah', color: '#71AFE5', alt: '#090909', keywords: ['utah', 'mammoth', 'uta'] },
+  VAN: { name: 'Canucks', city: 'Vancouver', color: '#00205B', alt: '#00843D', keywords: ['vancouver', 'canucks'] },
+  VGK: { name: 'Golden Knights', city: 'Vegas', color: '#B4975A', alt: '#333F42', keywords: ['vegas', 'golden knights', 'vgk'] },
+  WPG: { name: 'Jets', city: 'Winnipeg', color: '#041E42', alt: '#AC162C', keywords: ['winnipeg', 'wpg'] },
+  WSH: { name: 'Capitals', city: 'Washington', color: '#C8102E', alt: '#041E42', keywords: ['washington', 'capitals', 'wsh'] },
 };
+
+export function teamKeywords(abbrev, extra = []) {
+  return [...(TEAMS[abbrev]?.keywords ?? [String(abbrev || '').toLowerCase()]), ...extra.map((k) => String(k).toLowerCase())].filter(Boolean);
+}
+
+export function teamLabel(abbrev) {
+  const t = TEAMS[abbrev];
+  return t ? `${t.city} ${t.name}` : abbrev;
+}
 
 export function teamColor(abbrev) {
   return TEAMS[abbrev]?.color ?? '#555b66';

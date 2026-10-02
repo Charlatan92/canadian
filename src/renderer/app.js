@@ -1,7 +1,9 @@
 import { DEFAULT_CONFIG, mergeConfig } from '../shared/config.js';
+import { teamLabel } from '../shared/nhl.js';
 import { AgentBridge } from './agentBridge.js';
 import { Calibration } from './calibration.js';
 import { DEMO_PROFILE, createDemoApi } from './demo.js';
+import { Diagnostics } from './diagnostics.js';
 import { Director } from './director.js';
 import { GoalHorn } from './horn.js';
 import { NhlService } from './nhlService.js';
@@ -65,6 +67,7 @@ async function saveConfig(next, { silent = false } = {}) {
 }
 
 const director = new Director({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui });
+const diagnostics = new Diagnostics({ webview, bridge, streams, director, getConfig });
 
 const settings = new SettingsPanel($('#settings'), {
   getConfig,
@@ -76,6 +79,7 @@ const settings = new SettingsPanel($('#settings'), {
     toast,
     refreshStreams: () => streams.refresh(),
     currentUrl: () => webview.getURL(),
+    copyDiagnostics: () => copyDiagnostics(),
   },
 });
 
@@ -97,6 +101,10 @@ const calibration = new Calibration($('#calibration'), {
 });
 
 function onConfigChanged(prev, silent) {
+  if (prev.team !== cfg.team) {
+    nhl.restart();
+    streams.refresh();
+  }
   director.applyConfig();
   document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
   $('#btn-theatre').classList.toggle('active', cfg.stream.theatreMode);
@@ -140,7 +148,7 @@ $('#btn-prev').addEventListener('click', () => streams.prev());
 $('#btn-home').addEventListener('click', () => streams.goHome());
 $('#btn-refresh-streams').addEventListener('click', async () => {
   const list = await streams.refresh();
-  toast(list.length ? `${list.length} stream(s) trouvé(s)` : 'Aucun stream trouvé pour le match des Canadiens', { kind: list.length ? '' : 'warn' });
+  toast(list.length ? `${list.length} stream(s) trouvé(s)` : `Aucun stream trouvé pour le match de ${teamLabel(cfg.team)} : cliquez un lien sur la page`, { kind: list.length ? '' : 'warn' });
 });
 
 let refreshedOnce = false;
@@ -254,7 +262,7 @@ document.addEventListener('keydown', (e) => {
   if (calibration.open && e.key !== 'Escape') return;
   handleKey(e.key.toLowerCase());
 });
-window.habs.on('hotkey', ({ key }) => {
+bridge.on('hotkey', ({ key }) => {
   if (calibration.open && key !== 'escape') return;
   handleKey(key);
 });
@@ -269,11 +277,34 @@ $('#mode-pill').addEventListener('click', () => director.cycleForce());
 
 // ------------------------------------------------------------------ Protection anti pop-ups
 
+const pageHost = () => {
+  try {
+    return new URL(webview.getURL()).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
+async function addToList(key, host) {
+  const list = [...new Set([...(cfg.stream[key] ?? []), host])];
+  await saveConfig({ ...cfg, stream: { ...cfg.stream, [key]: list } });
+}
+
 let lastPopupToast = 0;
-window.habs.on('popup-blocked', ({ url }) => {
-  if (Date.now() - lastPopupToast < 10_000) return;
+window.habs.on('popup-blocked', ({ url, activated }) => {
+  if (Date.now() - lastPopupToast < (activated ? 3000 : 10_000)) return;
   lastPopupToast = Date.now();
-  toast(`Pop-up bloquée (${new URL(url).hostname})`, { ms: 2500 });
+  let host = url;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    /* adresse brute */
+  }
+  // Après un vrai clic, ça peut être un lien légitime ouvert en pop-up : on propose de l'ouvrir
+  toast(`Pop-up bloquée (${host})`, {
+    ms: activated ? 7000 : 2500,
+    actions: activated ? [{ label: 'Ouvrir ici', fn: () => webview.loadURL(url) }] : [],
+  });
 });
 window.habs.on('nav-blocked', ({ url, host }) => {
   toast(`Redirection bloquée vers ${host}`, {
@@ -284,12 +315,46 @@ window.habs.on('nav-blocked', ({ url, host }) => {
         label: 'Autoriser ce site',
         fn: async () => {
           await window.habs.allowNavigation({ hosts: [host] });
+          await addToList('allowedSites', host);
           webview.loadURL(url);
         },
       },
     ],
   });
 });
+
+// Le stream lancé n'a toujours pas démarré : aide au lieu de changer de stream dans le dos
+streams.on('stuck', ({ hasVideo }) => {
+  const host = pageHost();
+  const actions = [];
+  if (hasVideo) actions.push({ label: '▶ Lecture', fn: () => bridge.play() });
+  if (cfg.stream.adblock && host && !cfg.stream.adblockExceptions.includes(host)) {
+    actions.push({
+      label: 'Réessayer sans bloqueur de pubs',
+      fn: async () => {
+        await addToList('adblockExceptions', host);
+        webview.reload();
+      },
+    });
+  }
+  actions.push({ label: 'Stream suivant', fn: () => streams.next() });
+  actions.push({ label: 'Ouvrir dans mon navigateur', fn: () => window.habs.openExternal(webview.getURL()) });
+  actions.push({ label: 'Copier le diagnostic', fn: () => copyDiagnostics() });
+  toast(hasVideo ? 'La vidéo est en pause : cliquez sur ▶ dans le lecteur.' : 'Le lecteur ne démarre pas ?', {
+    kind: 'warn',
+    ms: 30_000,
+    actions,
+  });
+});
+
+async function copyDiagnostics() {
+  try {
+    await diagnostics.copy();
+    toast('Diagnostic copié : collez-le dans votre message pour qu\'on regarde ce qui bloque.', { ms: 6000 });
+  } catch (err) {
+    toast(`Impossible de copier le diagnostic : ${err.message}`, { kind: 'bad' });
+  }
+}
 
 bridge.on('audio-silent', () => {
   if (cfg.audio.mode !== 'webaudio') return;
@@ -341,4 +406,4 @@ if (demo) {
   }
 }
 
-window.__habs = { director, streams, bridge, vision, nhl, getConfig };
+window.__habs = { director, streams, bridge, vision, nhl, getConfig, diagnostics };

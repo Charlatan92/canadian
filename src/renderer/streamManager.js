@@ -1,3 +1,4 @@
+import { teamKeywords } from '../shared/nhl.js';
 import { detectLanguage, extractLinks, pickNextStream, rankStreams } from '../shared/streams.js';
 import { Emitter } from './util.js';
 
@@ -26,11 +27,25 @@ export class StreamManager extends Emitter {
     this.errorSince = null;
     this.health = { level: 'idle', reason: 'Aucun stream lancé' };
     this.navigatingAt = 0;
+    this.launchedBy = null; // 'app' (lancement auto, bascule) | 'user' (clic sur la page)
+    this.playedOnce = false;
+    this.helpShown = false;
 
     webview.addEventListener('did-navigate', (e) => this.#onNavigate(e.url));
     webview.addEventListener('did-fail-load', (e) => {
-      if (e.isMainFrame && e.errorCode !== -3 && this.index >= 0) this.fail(`page inaccessible (${e.errorDescription || e.errorCode})`);
+      if (!e.isMainFrame || e.errorCode === -3 || this.index < 0) return;
+      const reason = `page inaccessible (${e.errorDescription || e.errorCode})`;
+      if (this.launchedBy === 'app' || this.playedOnce) this.fail(reason);
+      else this.toast(`Le stream ne répond pas : ${reason}`, { kind: 'bad' });
     });
+  }
+
+  #resetPlayback(by) {
+    this.startedAt = Date.now();
+    this.errorSince = null;
+    this.launchedBy = by;
+    this.playedOnce = false;
+    this.helpShown = false;
   }
 
   get current() {
@@ -80,10 +95,12 @@ export class StreamManager extends Emitter {
       }
     }
     let found = [];
+    let pageLinks = [];
     if (html) {
       const doc = new DOMParser().parseFromString(html, 'text/html');
-      found = rankStreams(extractLinks(doc, base), {
-        keywords: cfg.teamKeywords,
+      pageLinks = extractLinks(doc, base);
+      found = rankStreams(pageLinks, {
+        keywords: teamKeywords(cfg.team, cfg.extraKeywords),
         languagePriority: cfg.stream.languagePriority,
         homeUrl: cfg.stream.homeUrl,
       });
@@ -100,7 +117,13 @@ export class StreamManager extends Emitter {
     // Le stream lancé à la main reste dans la liste même s'il n'y figure pas
     if (cur && !seen.has(cur)) this.streams.push(this.current);
     this.index = cur ? this.streams.findIndex((s) => s.url === cur) : -1;
-    await window.habs.allowNavigation({ hosts: this.streams.map((s) => s.host), streams: this.streams.map((s) => s.url) });
+    // Tous les liens de la page OnHockey (y compris les autres matchs) mènent à des hébergeurs de
+    // streams : on les autorise, pour que cliquer n'importe quel stream fonctionne.
+    const pageUrls = pageLinks.map((l) => l.href).filter((u) => /^https?:/i.test(u));
+    await window.habs.allowNavigation({
+      hosts: [...this.streams.map((s) => s.host), ...pageUrls.map(hostOf)],
+      streams: [...this.streams.map((s) => s.url), ...pageUrls],
+    });
     this.emit('list', this.streams);
     return this.streams;
   }
@@ -109,8 +132,7 @@ export class StreamManager extends Emitter {
     const s = this.streams[index];
     if (!s) return;
     this.index = index;
-    this.startedAt = Date.now();
-    this.errorSince = null;
+    this.#resetPlayback('app');
     this.navigatingAt = Date.now();
     this.#setHealth('warn', 'Chargement…');
     this.wv.loadURL(s.url, { httpReferrer: this.getConfig().stream.homeUrl });
@@ -161,7 +183,7 @@ export class StreamManager extends Emitter {
       this.emit('list', this.streams);
     }
     this.index = i;
-    this.startedAt = Date.now();
+    this.#resetPlayback('user');
     this.emit('current', this.streams[i]);
   }
 
@@ -177,8 +199,25 @@ export class StreamManager extends Emitter {
     const cfg = this.getConfig().stream;
     const since = (now - this.startedAt) / 1000;
     const v = statusAge < 5000 ? status?.video : null;
+    if (v && !v.paused && v.readyState >= 3 && v.progressing && !this.playedOnce) {
+      this.playedOnce = true;
+      this.emit('playing', this.current);
+    }
+
+    // Tant que le stream n'a jamais joué, on ne change pas de stream dans le dos de l'utilisateur :
+    // il faut souvent cliquer sur ▶ ou fermer un calque pub. On propose de l'aide à la place.
+    if (!this.playedOnce) {
+      if (since > 15 && !this.helpShown) {
+        this.helpShown = true;
+        this.emit('stuck', { reason: v ? 'lecteur en pause' : 'aucune vidéo détectée', hasVideo: !!v });
+      }
+      // Seul un stream lancé par l'app, sans aucune vidéo au bout du délai, est jugé mort
+      if (!v && this.launchedBy === 'app' && since > cfg.noVideoSec * 1.5) return this.fail('aucune vidéo trouvée');
+      return this.#setHealth('warn', v ? (v.paused ? 'Cliquez sur ▶ dans le lecteur' : 'Chargement…') : 'Recherche de la vidéo…');
+    }
+
     if (!v) {
-      if (since > cfg.noVideoSec) this.fail('aucune vidéo trouvée');
+      if (statusAge > cfg.noVideoSec * 1000) this.fail('la vidéo a disparu');
       else this.#setHealth('warn', 'Recherche de la vidéo…');
       return;
     }
@@ -189,8 +228,8 @@ export class StreamManager extends Emitter {
     }
     this.errorSince = null;
     if (v.paused) return this.#setHealth('warn', 'En pause');
-    if (v.stuckSec >= cfg.stallSec && since > 8) return this.fail('vidéo bloquée');
-    if (frozenSec >= cfg.frozenSec && !inBreak && since > 8) return this.fail('image figée');
+    if (v.stuckSec >= cfg.stallSec) return this.fail('vidéo bloquée');
+    if (frozenSec >= cfg.frozenSec && !inBreak) return this.fail('image figée');
     if (v.stuckSec > 3) return this.#setHealth('warn', 'Mise en mémoire tampon…');
     this.#setHealth('ok', 'Lecture en cours');
   }

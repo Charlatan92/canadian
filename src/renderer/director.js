@@ -129,7 +129,7 @@ export class Director {
       const side = this.goals.retract(p, g);
       this.overlays.banner.show({
         tag: 'Annulé',
-        title: side === 'team' ? 'But du CH refusé' : `But des ${g.opp.name} refusé`,
+        title: `But des ${side === 'team' ? g.team.name : g.opp.name} refusé`,
         sub: `Score : ${g.team.abbrev} ${this.goals.score.team} – ${this.goals.score.opp} ${g.opp.abbrev}`,
         color: '#555b66',
         durationSec: 7,
@@ -228,7 +228,7 @@ export class Director {
       this.overlays.banner.show({
         tag: 'Pénalité',
         title: `${pl?.name ?? 'Pénalité'}${pl ? ` (${pl.teamAbbrev})` : ''}`,
-        sub: `${penaltyLabel(p.details.descKey)} · ${p.details.duration ?? 2} min${ours ? '' : ' · Avantage numérique CH !'}`,
+        sub: `${penaltyLabel(p.details.descKey)} · ${p.details.duration ?? 2} min${ours ? '' : ` · Avantage numérique ${g.team.abbrev} !`}`,
         color: teamColor(pl?.teamAbbrev ?? (ours ? g.team.abbrev : g.opp.abbrev)),
         durationSec: 6,
       });
@@ -247,7 +247,7 @@ export class Director {
     const player = play ? g?.players.get(play.details.scoringPlayerId) : null;
     this.goalBoostUntil = Date.now() + 8000;
     if (!cfg.regie.celebration) {
-      this.overlays.banner.show({ tag: 'But', title: player ? player.name : 'But des Canadiens !', color: '#af1e2d' });
+      this.overlays.banner.show({ tag: 'But', title: player ? player.name : `But des ${g?.team?.name ?? 'vôtres'} !`, color: '#af1e2d' });
       return;
     }
     this.overlays.card.hide();

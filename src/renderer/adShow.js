@@ -5,7 +5,7 @@ import { esc, initials, photoHtml } from './util.js';
 // (chiffres du match, carte des tirs, momentum, joueur en vedette...) qui recouvre la pub.
 // Tout est calculé à partir de ce que le stream a déjà montré : aucun divulgâcheur.
 
-const RED = '#e5484d'; // CH (validé avec l'outil de palette, fond sombre)
+const RED = '#e5484d'; // équipe suivie (validé avec l'outil de palette, fond sombre)
 const BLUE = '#5b8def'; // adversaire
 
 export class AdShow {
@@ -28,7 +28,7 @@ export class AdShow {
     this.el.style.setProperty('--adshow-opacity', cfg.ads.showOpacity);
     this.el.innerHTML = `
       <div class="as-head">
-        <span class="as-live">RÉGIE CH</span>
+        <span class="as-live">RÉGIE</span>
         <div><div class="as-title">Pendant la pause</div><div class="as-sub">Analyse du match, calculée sur ce que vous avez déjà vu</div></div>
         <div class="as-score"></div>
       </div>
@@ -104,7 +104,7 @@ function sceneCompare({ game, stats }) {
   ];
   const lede =
     a.attempts > b.attempts * 1.25
-      ? `Le CH contrôle le jeu : ${a.attempts} tentatives de tir contre ${b.attempts}.`
+      ? `Les ${esc(game.team.name)} contrôlent le jeu : ${a.attempts} tentatives de tir contre ${b.attempts}.`
       : b.attempts > a.attempts * 1.25
         ? `Les ${esc(game.opp.name)} mettent de la pression : ${b.attempts} tentatives contre ${a.attempts}.`
         : `Match serré : ${a.attempts} tentatives de tir de chaque côté ou presque.`;
@@ -186,7 +186,7 @@ function sceneMomentum({ game, gt }) {
   const goals = series.filter((p) => p.goal);
   return `
     <h2>Le momentum</h2>
-    <p class="lede">Écart cumulé des tentatives de tir. Au-dessus de la ligne : le CH pousse. En dessous : l'adversaire.</p>
+    <p class="lede">Écart cumulé des tentatives de tir. Au-dessus de la ligne : ${esc(game.team.abbrev)} pousse. En dessous : ${esc(game.opp.abbrev)}.</p>
     ${legend(game)}
     <div class="svgbox"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Momentum">
       <defs>

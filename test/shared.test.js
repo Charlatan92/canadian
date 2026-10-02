@@ -14,6 +14,7 @@ import {
   pickGame,
   formatClock,
   strengthFor,
+  teamKeywords,
 } from '../src/shared/nhl.js';
 import { StreamClock } from '../src/shared/sync.js';
 import { AdDetector } from '../src/shared/adDetector.js';
@@ -268,7 +269,7 @@ test('streams : langue, pertinence et classement', () => {
     { href: 'https://s4.example/rds', text: 'RDS', context: '', header: 'NHL Montreal - Toronto' },
     { href: 'https://twitter.com/x', text: 'tw', context: 'Montreal' },
   ];
-  const ranked = rankStreams(links, { keywords: DEFAULT_CONFIG.teamKeywords, homeUrl: 'https://onhockey.tv/' });
+  const ranked = rankStreams(links, { keywords: teamKeywords('MTL'), homeUrl: 'https://onhockey.tv/' });
   assert.deepEqual(
     ranked.map((s) => s.url),
     ['https://s2.example/fr', 'https://s4.example/rds', 'https://s1.example/en'],
