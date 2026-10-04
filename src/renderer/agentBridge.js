@@ -10,7 +10,7 @@ export class AgentBridge extends Emitter {
     this.wv = webview;
     this.frames = new Map();
     this.primaryKey = null;
-    this.desired = { audio: null, vision: null, theatre: false, guard: true, voice: false };
+    this.desired = { audio: null, vision: null, theatre: false, guard: true };
     this.seq = 0;
     this.waiters = new Map();
     webview.addEventListener('ipc-message', (e) => this.#onMessage(e));
@@ -60,7 +60,6 @@ export class AgentBridge extends Emitter {
         break;
       case 'frame':
       case 'audio':
-      case 'pcm':
         if (key === this.primaryKey) this.emit(msg.type, msg);
         break;
       case 'snapshot':
@@ -101,12 +100,10 @@ export class AgentBridge extends Emitter {
     this.primaryKey = key;
     if (old) {
       this.#send(old, { type: 'vision', fps: 0 });
-      this.#send(old, { type: 'voice', on: false });
       this.#send(old, { type: 'theatre', on: false });
     }
     if (best && this.desired.theatre) this.#send(best, { type: 'theatre', on: true });
     if (best && this.desired.vision) this.#send(best, this.desired.vision);
-    if (best && this.desired.voice) this.#send(best, { type: 'voice', on: true });
     this.emit('primary', best);
   }
 
@@ -131,13 +128,6 @@ export class AgentBridge extends Emitter {
   setVision(cmd) {
     this.desired.vision = { type: 'vision', ...cmd };
     if (this.primary) this.#send(this.primary, this.desired.vision);
-  }
-
-  // Copie du son (16 kHz) pour la reconnaissance des noms : seulement depuis la vidéo principale
-  setVoice(on) {
-    if (this.desired.voice === !!on) return;
-    this.desired.voice = !!on;
-    if (this.primary) this.#send(this.primary, { type: 'voice', on: !!on });
   }
 
   // Mode théâtre : seule la frame de la vidéo principale agrandit son lecteur (et ses iframes parentes)

@@ -1,5 +1,4 @@
 // Copie dans vendor/ ce que l'interface charge localement (aucun réseau nécessaire à l'exécution) :
-// moteur de reconnaissance vocale (transformers.js) et binaire WebAssembly d'ONNX Runtime,
 // polices (Inter, Barlow Condensed) et planche d'icônes (Lucide).
 // Lancé après « npm install » et avant la création du paquet.
 import fs from 'node:fs';
@@ -8,9 +7,6 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FILES = [
-  ['node_modules/@huggingface/transformers/dist/transformers.min.js', 'vendor/transformers/transformers.min.js'],
-  ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs', 'vendor/ort/ort-wasm-simd-threaded.asyncify.mjs'],
-  ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm', 'vendor/ort/ort-wasm-simd-threaded.asyncify.wasm'],
   ['node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2', 'vendor/fonts/inter-latin.woff2'],
   ['node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2', 'vendor/fonts/inter-latin-ext.woff2'],
   ['node_modules/@fontsource-variable/inter/LICENSE', 'vendor/fonts/LICENSE-Inter.txt'],
@@ -28,12 +24,15 @@ const ICONS = [
   'trash-2', 'image', 'smile', 'zap', 'gauge', 'cast', 'app-window', 'trophy', 'megaphone', 'list', 'circle-help', 'sliders-horizontal',
   'arrow-right', 'arrow-left', 'power', 'square', 'radio-tower', 'monitor-play', 'heart-pulse', 'bell', 'badge-info', 'user-round',
   'layout-grid', 'loader-circle', 'wand-sparkles', 'clapperboard', 'search', 'expand', 'shrink',
+  // fil des actions, prison, but adverse, sons par équipe, réglages
+  'arrow-left-right', 'target', 'move-up-right', 'hand-grab', 'circle-slash', 'lock', 'cloud-rain', 'heart-crack', 'music',
+  'upload', 'languages', 'file-down', 'file-up',
 ];
 
 for (const [from, to] of FILES) {
   const src = path.join(root, from);
   if (!fs.existsSync(src)) {
-    // Pas bloquant : la fonction concernée sera dégradée (voix indisponible, police système…)
+    // Pas bloquant : la fonction concernée sera dégradée (police système…)
     console.warn(`[vendor] fichier absent : ${from}`);
     continue;
   }

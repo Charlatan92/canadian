@@ -359,7 +359,6 @@ const audio = {
       if (this.ctx.state !== 'running') await this.ctx.resume();
       // Si le contexte ne démarre pas, brancher la vidéo dessus la rendrait muette : on renonce
       if (this.ctx.state !== 'running' || this.nodes?.video === v) return;
-      voice.stop(); // la copie du son suit la nouvelle vidéo (rebranchée plus bas)
       const ctx = this.ctx;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 2048;
@@ -388,7 +387,6 @@ const audio = {
       }
       this.setGain(this.targetDb);
       if (this.nodes.analyser) this.startAnalysis();
-      if (voice.wanted) voice.start();
       send({ type: 'audio-attached', route: this.nodes.route, url: location.href });
     } catch (err) {
       this.failed = v;
@@ -482,89 +480,6 @@ function isCrossOrigin(v) {
   }
 }
 
-// Voix du commentateur : copie du son en 16 kHz mono pour la reconnaissance des noms.
-// On se branche en dérivation sur la source : ce que vous entendez ne change pas.
-const voice = {
-  wanted: false,
-  tap: null,
-  resampler: null,
-  buf: new Int16Array(8000),
-  fill: 0,
-
-  set(on) {
-    this.wanted = !!on;
-    if (on) this.start();
-    else this.stop();
-  },
-
-  start() {
-    const n = audio.nodes;
-    if (!this.wanted || this.tap || !n?.source || !audio.ctx) return;
-    const ctx = audio.ctx;
-    const tap = ctx.createScriptProcessor(4096, 1, 1);
-    const mute = ctx.createGain();
-    mute.gain.value = 0;
-    this.resampler = makeResampler(ctx.sampleRate, 16000);
-    tap.onaudioprocess = (e) => {
-      if (n.video.paused) return;
-      this.push(this.resampler(e.inputBuffer.getChannelData(0)));
-    };
-    n.source.connect(tap);
-    tap.connect(mute);
-    mute.connect(ctx.destination);
-    this.tap = { node: tap, mute, source: n.source };
-    send({ type: 'voice-ready', sampleRate: ctx.sampleRate });
-  },
-
-  stop() {
-    if (!this.tap) return;
-    try {
-      this.tap.source.disconnect(this.tap.node);
-      this.tap.node.disconnect();
-      this.tap.mute.disconnect();
-    } catch {
-      /* déjà débranché */
-    }
-    this.tap = null;
-    this.fill = 0;
-  },
-
-  push(samples) {
-    for (let i = 0; i < samples.length; i++) {
-      const v = Math.max(-1, Math.min(1, samples[i]));
-      this.buf[this.fill++] = v < 0 ? v * 0x8000 : v * 0x7fff;
-      if (this.fill === this.buf.length) {
-        send({ type: 'pcm', rate: 16000, data: this.buf });
-        this.buf = new Int16Array(8000);
-        this.fill = 0;
-      }
-    }
-  },
-};
-
-// Rééchantillonnage en continu (filtre passe-bas simple puis interpolation linéaire)
-function makeResampler(from, to) {
-  const ratio = from / to;
-  const alpha = Math.min(1, (2 * Math.PI * (to * 0.45)) / from / (1 + (2 * Math.PI * (to * 0.45)) / from));
-  let lp = 0;
-  let prev = 0;
-  let pos = 0;
-  return (input) => {
-    const out = [];
-    for (let i = 0; i < input.length; i++) {
-      lp += alpha * (input[i] - lp);
-      // échantillons de sortie qui tombent entre prev (i-1) et lp (i)
-      while (pos <= 1) {
-        out.push(prev + (lp - prev) * pos);
-        pos += ratio;
-      }
-      pos -= 1;
-      prev = lp;
-    }
-    return out;
-  };
-}
-
 function dbToGain(db) {
   return db <= -100 ? 0 : 10 ** (db / 20);
 }
@@ -600,6 +515,28 @@ function iceFractionRGBA(d, w, h) {
   return n ? ice / n : null;
 }
 
+// Apparence de l'image (copie de lookFeatures, src/shared/adDetector.js)
+function lookFeatures(d, w, h) {
+  const bins = new Float32Array(27);
+  for (let y = 0; y < h; y++) {
+    const band = y < h / 3 ? 0 : y < (2 * h) / 3 ? 1 : 2;
+    for (let x = 0, i = y * w * 4; x < w; x++, i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const sat = Math.max(r, g, b) - Math.min(r, g, b);
+      const l = (r * 77 + g * 150 + b * 29) >> 8;
+      bins[band * 9 + (l < 70 ? 0 : l < 160 ? 1 : 2) * 3 + (sat < 40 ? 0 : r >= b ? 1 : 2)]++;
+    }
+  }
+  for (let band = 0; band < 3; band++) {
+    let n = 0;
+    for (let i = 0; i < 9; i++) n += bins[band * 9 + i];
+    for (let i = 0; i < 9; i++) bins[band * 9 + i] = n ? bins[band * 9 + i] / n : 0;
+  }
+  return Array.from(bins, (v) => Math.round(v * 1000) / 1000);
+}
+
 const vision = {
   cfg: null,
   timer: null,
@@ -610,9 +547,11 @@ const vision = {
   configure(cfg) {
     this.cfg = cfg;
     clearInterval(this.timer);
+    clearInterval(this.fastTimer);
     this.timer = null;
     if (!cfg || !cfg.fps) return;
     this.timer = setInterval(() => this.tick(), Math.max(150, 1000 / cfg.fps));
+    this.fastTimer = setInterval(() => this.sampleBlack(), 120);
   },
 
   canvas(w, h) {
@@ -635,8 +574,27 @@ const vision = {
     const d = ctx.getImageData(0, 0, w, h).data;
     const g = new Uint8Array(w * h);
     for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
-    if (stats) stats.ice = iceFractionRGBA(d, w, h);
+    if (stats) {
+      stats.ice = iceFractionRGBA(d, w, h);
+      stats.look = lookFeatures(d, w, h);
+    }
     return g;
+  },
+
+  // Écran noir très bref (fondu vers les pubs) : échantillonné souvent, signalé à l'image suivante
+  sampleBlack() {
+    const v = state.video;
+    if (!v || this.tainted || v.readyState < 2 || !v.videoWidth) return;
+    try {
+      const { ctx } = this.canvas(8, 8);
+      ctx.drawImage(v, 0, 0, 8, 8);
+      const d = ctx.getImageData(0, 0, 8, 8).data;
+      let s = 0;
+      for (let i = 0; i < d.length; i += 4) s += d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29;
+      if (s / 256 / 64 < 14) this.blackSeen = true;
+    } catch {
+      /* image protégée */
+    }
   },
 
   // Vignette pour l'OCR : hauteur fixe, largeur selon la zone
@@ -654,6 +612,8 @@ const vision = {
       const now = Date.now();
       const frame = { type: 'frame', t: now, vw: v.videoWidth, vh: v.videoHeight };
       frame.thumb = this.grab(v, null, 64, 36, frame);
+      frame.blackSeen = !!this.blackSeen;
+      this.blackSeen = false;
       const r = cfg.regions || {};
       if (r.scorebug) frame.bug = this.grab(v, r.scorebug, 96, 24);
       if (r.logo) frame.logo = this.grab(v, r.logo, 48, 24);
@@ -687,12 +647,13 @@ const vision = {
     }
   },
 
-  async burst(id, { w = 192, h = 108, count = 30, intervalMs = 400 } = {}) {
+  // rect : zone de l'image (ex. le tableau de score, pour y chercher l'horloge) ; null = image entière
+  async burst(id, { w = 192, h = 108, count = 30, intervalMs = 400, rect = null } = {}) {
     for (let i = 0; i < count; i++) {
       const v = state.video;
       if (!v || v.readyState < 2) break;
       try {
-        send({ type: 'burst-frame', id, i, w, h, gray: this.grab(v, null, w, h) });
+        send({ type: 'burst-frame', id, i, w, h, gray: this.grab(v, rect, w, h) });
       } catch {
         break;
       }
@@ -891,9 +852,6 @@ ipcRenderer.on('agent-cmd', (_e, cmd) => {
       break;
     case 'snapshot':
       vision.snapshot(cmd.id, cmd.maxWidth);
-      break;
-    case 'voice':
-      voice.set(cmd.on);
       break;
     case 'burst':
       vision.burst(cmd.id, cmd);

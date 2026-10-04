@@ -15,7 +15,6 @@ import { SettingsPanel } from './settings.js';
 import { StreamManager } from './streamManager.js';
 import { RosterPanel } from './ui/roster.js';
 import { installTooltips } from './ui/tooltip.js';
-import { watchVoice } from './ui/voiceToasts.js';
 import { Welcome } from './ui/welcome.js';
 import { $, applyTeamTheme, esc, icon, installImageFallback, logoMarkHtml, teamLogoHtml } from './util.js';
 
@@ -119,7 +118,7 @@ function onConfigChanged(prev, silent) {
   regie?.director.applyConfig();
   document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
   $('#btn-theatre').classList.toggle('active', cfg.stream.theatreMode);
-  if (regie && (prev.audio.hornFile !== cfg.audio.hornFile || prev.audio.goalSongFile !== cfg.audio.goalSongFile)) regie.horn.loadCustom();
+  if (prev.team !== cfg.team || JSON.stringify(prev.audio.teamSounds) !== JSON.stringify(cfg.audio.teamSounds)) loadSounds();
   if (
     streams &&
     (JSON.stringify(prev.stream.languagePriority) !== JSON.stringify(cfg.stream.languagePriority) ||
@@ -137,6 +136,18 @@ const heads = new EmojiHeads();
 const rosterNhl = new NhlService({ api: demo ? createDemoApi(info.demoStart) : window.rondelle.nhl, getConfig });
 const roster = new RosterPanel({ heads, nhl: rosterNhl, getConfig, toast });
 const localHorn = new GoalHorn();
+// Sons importés de l'équipe suivie (klaxon, chanson), décodés d'avance pour la célébration
+function loadSounds() {
+  const h = regie?.horn ?? localHorn;
+  return h.loadTeam(cfg.team, cfg.audio.teamSounds);
+}
+// Écoute depuis les réglages (n'importe quelle équipe)
+async function previewSound(team, kind) {
+  const h = regie?.horn ?? localHorn;
+  if (h.team !== team) await h.loadTeam(team, cfg.audio.teamSounds);
+  h.preview(kind, { team, volume: kind === 'song' ? cfg.audio.goalSongVolume : cfg.audio.hornVolume });
+  if (team !== cfg.team) setTimeout(() => loadSounds(), 16_000);
+}
 
 let overlayStatus = null;
 
@@ -145,7 +156,9 @@ const settings = new SettingsPanel($('#settings'), {
   saveConfig,
   actions: {
     testGoal: () => (MODE === 'overlay' ? window.rondelle.overlayCommand({ type: 'test-goal' }) : testGoal()),
-    testHorn: () => (regie?.horn ?? localHorn).play({ hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume }),
+    test: (kind) => (MODE === 'overlay' ? window.rondelle.overlayCommand({ type: 'test', kind }) : regie?.director.test(kind)),
+    testHorn: () => (regie?.horn ?? localHorn).play({ team: cfg.team, hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume }),
+    previewSound: (team, kind) => previewSound(team, kind),
     calibrate: () => calibration.show(),
     toast,
     refreshStreams: () => streams?.refresh(),
@@ -153,7 +166,6 @@ const settings = new SettingsPanel($('#settings'), {
     copyDiagnostics: () => copyDiagnostics(),
     displays: () => window.rondelle.displays(),
     overlayStatus: () => ({ capturing: !!overlayStatus?.capturing, detail: overlayStatus?.health?.reason }),
-    voiceStatus: () => (MODE === 'overlay' ? overlayStatus?.voice : regie?.voice.status) ?? { state: 'off' },
     info: () => info,
     checkUpdates: (manual) => checkUpdates(manual),
     welcome: () => welcome.show(),
@@ -213,7 +225,7 @@ async function copyDiagnostics() {
   try {
     const report = diagnostics
       ? await diagnostics.collect()
-      : { quand: new Date().toISOString(), mode: MODE, app: await window.rondelle.diagnostics(), surcouche: overlayStatus, reglages: { equipe: cfg.team, surcouche: cfg.overlay, voix: cfg.voice } };
+      : { quand: new Date().toISOString(), mode: MODE, app: await window.rondelle.diagnostics(), surcouche: overlayStatus, reglages: { equipe: cfg.team, surcouche: cfg.overlay } };
     await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
     toast('Diagnostic copié : collez-le dans votre message pour qu\'on regarde ce qui bloque.', { kind: 'ok', ms: 6000 });
   } catch (err) {
@@ -240,11 +252,7 @@ async function checkUpdates(manual = false) {
 // ------------------------------------------------------------------ Raccourcis
 
 function testGoal() {
-  const d = regie?.director;
-  if (!d) return;
-  const g = d.game;
-  const goal = g ? [...g.plays].reverse().find((p) => p.type === 'goal' && p.teamId === g.team.id) : null;
-  d.celebrate(goal ?? null);
+  regie?.director.test('goal');
 }
 
 // Plein écran : la fenêtre passe en plein écran et le lecteur occupe toute la place (mode
@@ -409,7 +417,7 @@ function renderControl() {
         <div class="control-hero">${teamLogoHtml(cfg.team, { logos: cfg.ui.logos })}<div><h1>Surcouche ${esc(p.name)}</h1><p data-f="hero"></p></div></div>
         <div class="control-grid">
           ${card('game', 'Match', 'trophy')}${card('mode', 'Ce que la régie voit', 'eye')}${card('image', 'Image', 'monitor')}
-          ${card('sync', 'Synchro', 'timer')}${card('voice', 'Voix du commentateur', 'mic')}${card('duck', 'Son baissé pendant les pubs', 'volume-2')}
+          ${card('sync', 'Synchro', 'timer')}${card('duck', 'Son baissé pendant les pubs', 'volume-2')}
         </div>
         <div class="control-actions">
           ${p.url ? `<button class="btn btn-primary" data-ctl="open-provider">${icon('external-link', 'ic-sm')}Ouvrir ${esc(p.name)}</button>` : ''}
@@ -430,7 +438,6 @@ function renderControl() {
     const n = el.querySelector(`[data-f="${f}"]`);
     if (n && n.textContent !== text) n.textContent = text;
   };
-  const voice = st?.voice;
   const g = st?.game;
   set('hero', capturing ? (st.health?.reason ?? 'Capture en cours') : "Démarrage de la capture de l'écran…");
   set('game', g?.kind === 'game' ? `${g.team} ${g.score.team} – ${g.score.opp} ${g.opp}` : (g?.text ?? (g?.kind === 'scheduled' ? `${g.away} @ ${g.home}` : '—')));
@@ -440,8 +447,6 @@ function renderControl() {
   set('image', capturing ? `${st.width}×${st.height}` : '—');
   set('image-s', capturing ? `${(st.fps ?? 0).toFixed(1)} analyse(s) / s${st.audio ? ' · son capté' : ' · sans le son'}` : '');
   set('sync', st?.sync?.text ?? '—');
-  set('voice', !voice || voice.state === 'off' ? 'Arrêtée' : voice.state === 'ready' ? `Prête (${voice.device === 'webgpu' ? 'carte graphique' : 'processeur'})` : voice.state === 'loading' ? `Téléchargement ${voice.progress ?? 0} %` : 'Indisponible');
-  set('voice-s', voice?.lastText ? `« ${voice.lastText.slice(0, 60)} »` : '');
   set('duck', cfg.overlay.duck === 'off' ? 'Désactivée' : info.duckSupported ? (cfg.overlay.duck === 'all' ? 'Tout le PC' : 'Navigateurs') : 'Windows seulement');
 }
 
@@ -473,8 +478,8 @@ function startIntegratedPlayer() {
   overlays.toasts = toasts;
   bridge = new AgentBridge(webview);
   streams = new StreamManager({ webview, getConfig, toast, demo });
-  regie = createRegie({ bridge, streams, getConfig, saveConfig, overlays, ui, demo, demoStart: info.demoStart });
-  const { director, vision, voice, nhl, horn } = regie;
+  regie = createRegie({ bridge, streams, getConfig, saveConfig, overlays, ui, demo, demoStart: info.demoStart, demoLead: info.demoLead });
+  const { director, vision, nhl, horn } = regie;
   diagnostics = new Diagnostics({ webview, bridge, streams, director, getConfig });
 
   // --- Streams
@@ -678,8 +683,6 @@ function startIntegratedPlayer() {
     });
   });
 
-  watchVoice(voice, toast, getConfig);
-
   let nhlErrorShown = false;
   nhl.on('error', (err) => {
     if (nhlErrorShown) return;
@@ -698,7 +701,7 @@ function startIntegratedPlayer() {
 
   director.applyConfig();
   $('#btn-theatre').classList.toggle('active', cfg.stream.theatreMode);
-  horn.loadCustom();
+  loadSounds();
   nhl.start();
   if (demo) {
     streams.refresh();
@@ -710,7 +713,7 @@ function startIntegratedPlayer() {
     }
   }
 
-  window.__rondelle = { director, streams, bridge, vision, nhl, getConfig, diagnostics, heads: regie.heads, voice, settings, roster, welcome, calibration };
+  window.__rondelle = { director, streams, bridge, vision, nhl, getConfig, diagnostics, heads: regie.heads, settings, roster, welcome, calibration };
 }
 
 if (MODE === 'overlay') window.__rondelle = { getConfig, settings, roster, heads, calibration, overlayStatus: () => overlayStatus };

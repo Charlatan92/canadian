@@ -1,7 +1,6 @@
 import { ScreenBridge, ScreenStreams } from './capture/screenBridge.js';
 import { createRegie } from './core/regie.js';
 import { overlayRefs } from './overlays.js';
-import { watchVoice } from './ui/voiceToasts.js';
 import { $, applyTeamTheme, installImageFallback } from './util.js';
 
 // Fenêtre de surcouche : transparente, par-dessus le navigateur où joue le match. Elle fait tout
@@ -36,16 +35,22 @@ async function saveConfig(next) {
 
 const bridge = new ScreenBridge();
 const streams = new ScreenStreams({ getConfig, bridge });
-const regie = createRegie({ bridge, streams, getConfig, saveConfig, overlays, ui, demo, demoStart: info.demoStart });
-const { director, vision, voice, nhl, horn } = regie;
-watchVoice(voice, toast, getConfig);
+const regie = createRegie({ bridge, streams, getConfig, saveConfig, overlays, ui, demo, demoStart: info.demoStart, demoLead: info.demoLead });
+const { director, vision, nhl, horn } = regie;
 
 // Notre klaxon passe aussi dans la capture du son : l'analyse s'arrête pendant la célébration
 const play = horn.play.bind(horn);
 horn.play = (opts) => {
-  bridge.quiet(12_000);
+  bridge.quiet(18_000);
   return play(opts);
 };
+for (const name of ['sad', 'jail']) {
+  const fn = horn[name].bind(horn);
+  horn[name] = (opts) => {
+    bridge.quiet(6000);
+    return fn(opts);
+  };
+}
 
 window.rondelle.on('config-changed', (next) => {
   const prev = cfg;
@@ -54,19 +59,19 @@ window.rondelle.on('config-changed', (next) => {
     applyTeamTheme(cfg.team);
     nhl.restart();
   }
-  if (prev.audio.hornFile !== cfg.audio.hornFile || prev.audio.goalSongFile !== cfg.audio.goalSongFile) horn.loadCustom();
+  if (prev.team !== cfg.team || JSON.stringify(prev.audio.teamSounds) !== JSON.stringify(cfg.audio.teamSounds)) horn.loadTeam(cfg.team, cfg.audio.teamSounds);
   document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
   director.applyConfig();
 });
 
 window.rondelle.on('overlay-cmd', (cmd) => {
   switch (cmd?.type) {
-    case 'test-goal': {
-      const g = director.game;
-      const goal = g ? [...g.plays].reverse().find((p) => p.type === 'goal' && p.teamId === g.team.id) : null;
-      director.celebrate(goal ?? null);
+    case 'test-goal':
+      director.test('goal');
       break;
-    }
+    case 'test':
+      director.test(cmd.kind);
+      break;
     case 'cycle-force':
       director.cycleForce();
       break;
@@ -134,7 +139,6 @@ setInterval(() => {
     capturing: bridge.capturing,
     fps: vision.metrics.fps,
     health: streams.health,
-    voice: { ...voice.status },
     profile: p?.name ?? null,
     syncSource: director.clockInfo?.source ?? null,
   });
@@ -142,9 +146,9 @@ setInterval(() => {
 
 document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
 director.applyConfig();
-horn.loadCustom();
+horn.loadTeam(cfg.team, cfg.audio.teamSounds);
 nhl.start();
 showChip('Rondelle · démarrage de la surcouche…', 'warn', 0);
 startCapture();
 
-window.__rondelle = { director, streams, bridge, vision, nhl, getConfig, voice };
+window.__rondelle = { director, streams, bridge, vision, nhl, getConfig };

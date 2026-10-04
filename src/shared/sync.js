@@ -5,12 +5,18 @@
 // commun "gt" (secondes de jeu écoulées) :
 //   - source 'ocr'    : lecture de l'horloge du tableau de score sur l'image du stream (le plus précis)
 //   - source 'estimé' : horloge de l'API décalée du retard mesuré pendant que l'OCR fonctionnait
+//   - source 'figée'  : l'horloge a été lue mais ne l'est plus depuis peu (pub, ralenti) et le retard
+//                       n'est pas encore connu : on reste sur la dernière lecture. Prudent : rien n'est
+//                       montré avant que le stream y soit, au lieu d'un retard réglé au hasard.
 //   - source 'manuel' : horloge de l'API décalée d'un retard réglé à la main
+// Le retard peut être négatif : la télé (abonnement, surcouche) est souvent en avance sur l'API.
 
 import { gtFromRemaining, periodFromGt, periodLength, periodStart } from './nhl.js';
 
 const OCR_FRESH_MS = 10_000;
 const MAX_STREAM_DELAY_SEC = 600;
+const MAX_STREAM_AHEAD_SEC = 90; // télé en avance sur l'API
+const FROZEN_MAX_MS = 4 * 60_000;
 const HISTORY_MS = 45 * 60_000;
 
 export class StreamClock {
@@ -113,7 +119,7 @@ export class StreamClock {
     for (const p of [apiPeriod, apiPeriod - 1]) {
       if (p < 1 || remaining > periodLength(p, this.gameType)) continue;
       const gt = gtFromRemaining(p, remaining, this.gameType);
-      if (gt <= apiNow + 15 && gt >= apiNow - MAX_STREAM_DELAY_SEC) return gt;
+      if (gt <= apiNow + MAX_STREAM_AHEAD_SEC && gt >= apiNow - MAX_STREAM_DELAY_SEC) return gt;
     }
     return null;
   }
@@ -147,6 +153,14 @@ export class StreamClock {
   }
 
   #estimateDelay(gt, t) {
+    // Stream en avance sur l'API (télé) : l'API n'a pas encore atteint ce temps de jeu
+    const apiNow = this.apiGameTimeAt(t);
+    const last = this.history.at(-1);
+    if (apiNow != null && last?.running && gt > apiNow + 0.5) {
+      const d = -(gt - apiNow);
+      if (d >= -MAX_STREAM_AHEAD_SEC) this.delayEst = this.delayEst == null ? d : this.delayEst * 0.8 + d * 0.2;
+      return;
+    }
     // Quand l'API affichait-elle ce même temps de jeu ?
     const h = this.history;
     for (let i = h.length - 1; i >= 0; i--) {
@@ -165,6 +179,12 @@ export class StreamClock {
 
   // --- Temps de jeu actuel sur le stream ---
 
+  // Le stream est-il en avance sur l'API (télé) ? Les actions ne peuvent alors pas être annoncées
+  // avant que l'API les publie : le score lu à l'écran fait foi pour les buts.
+  get streamAhead() {
+    return this.delayEst != null && this.delayEst < -2;
+  }
+
   now(t) {
     const a = this.anchor;
     if (this.mode === 'auto' && a && t - a.t <= OCR_FRESH_MS) {
@@ -172,6 +192,9 @@ export class StreamClock {
       // "avancer" le match au-delà de ce que le stream montre
       const gt = a.gt + (a.running ? Math.min((t - a.t) / 1000, 2) : 0);
       return this.#result(gt, 'ocr', this.delayEst);
+    }
+    if (this.mode === 'auto' && a && this.delayEst == null && t - a.t <= FROZEN_MAX_MS) {
+      return this.#result(a.gt + (a.running ? 2 : 0), 'figée', null);
     }
     const useEst = this.mode === 'auto' && this.delayEst != null;
     const delay = useEst ? this.delayEst : this.manualDelaySec;

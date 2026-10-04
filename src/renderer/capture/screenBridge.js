@@ -1,38 +1,16 @@
 import { providerOf } from '../../shared/providers.js';
-import { iceFractionRGBA } from '../../shared/adDetector.js';
+import { iceFractionRGBA, lookFeatures } from '../../shared/adDetector.js';
 import { Emitter } from '../util.js';
 
 // Mode surcouche : la vidéo joue dans le navigateur (ou l'appli du fournisseur télé) et Rondelle
 // regarde l'écran choisi. ScreenBridge offre à la Régie la même interface que l'agent injecté
-// dans le lecteur intégré : vignettes pour la vision, niveau sonore, son 16 kHz pour la voix,
-// image pour la calibration. Le son vient de la capture « loopback » de Windows.
-
-function makeResampler(from, to) {
-  const ratio = from / to;
-  const k = (2 * Math.PI * (to * 0.45)) / from;
-  const alpha = Math.min(1, k / (1 + k));
-  let lp = 0;
-  let prev = 0;
-  let pos = 0;
-  return (input) => {
-    const out = [];
-    for (let i = 0; i < input.length; i++) {
-      lp += alpha * (input[i] - lp);
-      while (pos <= 1) {
-        out.push(prev + (lp - prev) * pos);
-        pos += ratio;
-      }
-      pos -= 1;
-      prev = lp;
-    }
-    return out;
-  };
-}
+// dans le lecteur intégré : vignettes pour la vision, niveau sonore, image pour la calibration.
+// Le son vient de la capture « loopback » de Windows.
 
 export class ScreenBridge extends Emitter {
   constructor() {
     super();
-    this.desired = { theatre: false, voice: false, vision: null };
+    this.desired = { theatre: false, vision: null };
     this.frames = new Map(); // compatibilité avec le diagnostic
     this.primaryKey = 'screen';
     this.video = null;
@@ -44,7 +22,6 @@ export class ScreenBridge extends Emitter {
     this.blackSince = null;
     this.lastDuckDb = 0;
     this.quietUntil = 0; // analyse du son coupée pendant notre propre klaxon
-    this.pcm = { buf: new Int16Array(8000), fill: 0 };
   }
 
   get primary() {
@@ -131,57 +108,11 @@ export class ScreenBridge extends Emitter {
         acc = { n: 0, rms: 0, crowd: 0 };
       }
     }, 100);
-    if (this.desired.voice) this.#voiceOn();
   }
 
   // Notre klaxon passe aussi dans la capture : on n'analyse pas le son pendant ce temps
   quiet(ms) {
     this.quietUntil = Date.now() + ms;
-  }
-
-  setVoice(on) {
-    this.desired.voice = !!on;
-    if (on) this.#voiceOn();
-    else this.#voiceOff();
-  }
-
-  #voiceOn() {
-    if (this.tap || !this.source || !this.audioCtx) return;
-    const ctx = this.audioCtx;
-    const tap = ctx.createScriptProcessor(4096, 1, 1);
-    const mute = ctx.createGain();
-    mute.gain.value = 0;
-    const resample = makeResampler(ctx.sampleRate, 16000);
-    tap.onaudioprocess = (e) => {
-      if (Date.now() < this.quietUntil) return;
-      const s = resample(e.inputBuffer.getChannelData(0));
-      const p = this.pcm;
-      for (let i = 0; i < s.length; i++) {
-        const v = Math.max(-1, Math.min(1, s[i]));
-        p.buf[p.fill++] = v < 0 ? v * 0x8000 : v * 0x7fff;
-        if (p.fill === p.buf.length) {
-          this.emit('pcm', { type: 'pcm', rate: 16000, data: p.buf });
-          p.buf = new Int16Array(8000);
-          p.fill = 0;
-        }
-      }
-    };
-    this.source.connect(tap);
-    tap.connect(mute);
-    mute.connect(ctx.destination);
-    this.tap = { tap, mute };
-  }
-
-  #voiceOff() {
-    if (!this.tap) return;
-    try {
-      this.source.disconnect(this.tap.tap);
-      this.tap.tap.disconnect();
-      this.tap.mute.disconnect();
-    } catch {
-      /* déjà débranché */
-    }
-    this.tap = null;
   }
 
   // La Régie demande un gain : en surcouche on ne peut que baisser le son des autres programmes
@@ -209,9 +140,19 @@ export class ScreenBridge extends Emitter {
 
   #applyVision() {
     clearInterval(this.visionTimer);
+    clearInterval(this.blackTimer);
     const cfg = this.desired.vision;
     if (!cfg?.fps || !this.video) return;
     this.visionTimer = setInterval(() => this.#tick(), Math.max(150, 1000 / cfg.fps));
+    // Écran noir très bref (fondu vers les pubs) : échantillonné souvent, signalé à l'image suivante
+    this.blackTimer = setInterval(() => {
+      const v = this.video;
+      if (!v || !this.capturing || v.readyState < 2) return;
+      const tiny = this.#grab(null, 8, 8);
+      let s = 0;
+      for (const x of tiny) s += x;
+      if (s / tiny.length < 14) this.blackSeen = true;
+    }, 120);
   }
 
   #canvas(w, h) {
@@ -233,7 +174,10 @@ export class ScreenBridge extends Emitter {
     const d = ctx.getImageData(0, 0, w, h).data;
     const g = new Uint8Array(w * h);
     for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
-    if (stats) stats.ice = iceFractionRGBA(d, w, h);
+    if (stats) {
+      stats.ice = iceFractionRGBA(d, w, h);
+      stats.look = lookFeatures(d, w, h);
+    }
     return g;
   }
 
@@ -251,6 +195,8 @@ export class ScreenBridge extends Emitter {
     const now = Date.now();
     const frame = { type: 'frame', t: now, vw: v.videoWidth, vh: v.videoHeight };
     frame.thumb = this.#grab(null, 64, 36, frame);
+    frame.blackSeen = !!this.blackSeen;
+    this.blackSeen = false;
     let sum = 0;
     for (const x of frame.thumb) sum += x;
     this.luma = sum / frame.thumb.length;
@@ -279,10 +225,10 @@ export class ScreenBridge extends Emitter {
     return { w, h, jpeg: await blob.arrayBuffer() };
   }
 
-  async burst({ w = 192, h = 108, count = 30, intervalMs = 400 } = {}) {
+  async burst({ w = 192, h = 108, count = 30, intervalMs = 400, rect = null } = {}) {
     const frames = [];
     for (let i = 0; i < count && this.capturing; i++) {
-      frames.push({ i, w, h, gray: this.#grab(null, w, h) });
+      frames.push({ i, w, h, gray: this.#grab(rect, w, h) });
       await new Promise((r) => setTimeout(r, intervalMs));
     }
     return frames;

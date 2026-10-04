@@ -1,6 +1,7 @@
 import { APP_NAME, APP_TAGLINE, ISSUES_URL, REPO_URL } from '../shared/brand.js';
 import { DEFAULT_CONFIG, SETTINGS_ITEMS, SETTINGS_SECTIONS, getPath, setPath } from '../shared/config.js';
-import { teamLabel } from '../shared/nhl.js';
+import { bestExcerpt, hornProfile, soundSearchUrl } from '../shared/horns.js';
+import { TEAMS, formatClock, teamLabel } from '../shared/nhl.js';
 import { PROVIDERS, providerOf } from '../shared/providers.js';
 import { teamGridHtml } from './ui/teamPicker.js';
 import { esc, icon, logoMarkHtml, teamLogoHtml } from './util.js';
@@ -34,9 +35,6 @@ const LICENSES = [
   ['Electron', 'MIT'],
   ['Ghostery Adblocker', 'MPL-2.0'],
   ['Tesseract.js (OCR)', 'Apache-2.0'],
-  ['Transformers.js', 'Apache-2.0'],
-  ['ONNX Runtime Web', 'MIT'],
-  ['Modèles Whisper (OpenAI, conversion onnx-community)', 'MIT'],
   ['Inter, Barlow Condensed (polices)', 'SIL OFL 1.1'],
   ['Lucide (icônes)', 'ISC'],
 ];
@@ -49,6 +47,8 @@ export class SettingsPanel {
     this.section = 'general';
     this.displays = [];
     this.teamOpen = false;
+    this.soundTeam = null; // équipe dont on règle les sons (par défaut : l'équipe suivie)
+    this.soundLink = null; // 'horn' | 'song' : champ « lien direct » ouvert
     el.addEventListener('change', (e) => this.#onChange(e));
     el.addEventListener('input', (e) => this.#onInput(e));
     el.addEventListener('click', (e) => this.#onClick(e));
@@ -185,6 +185,44 @@ export class SettingsPanel {
   }
 
   #customRenderers = {
+    'team-sounds'(cfg) {
+      const team = this.soundTeam ?? cfg.team;
+      const sounds = cfg.audio.teamSounds?.[team] ?? {};
+      const KIND_NAMES = { ship: 'corne de navire', train: 'accord de locomotive', air: 'klaxon de camion', fog: 'corne de brume', arena: "grosse corne d'aréna", siren: 'sirène' };
+      const prof = hornProfile(team);
+      const row = (kind) => {
+        const s = sounds[kind];
+        const title = kind === 'horn' ? 'Klaxon' : 'Chanson de but';
+        const status = s
+          ? `« ${esc(s.name ?? 'fichier importé')} » · ${kind === 'song' ? `extrait ${formatClock(s.start)} – ${formatClock(s.start + s.dur)}` : `à partir de ${formatClock(s.start)}`}`
+          : kind === 'horn'
+            ? `Synthétisé, propre aux ${esc(TEAMS[team]?.name ?? team)} (${KIND_NAMES[prof.kind]}${prof.cannon ? ' et coup de canon' : ''})`
+            : 'Aucune : importez la chanson de votre équipe, Rondelle en garde les 15 secondes les plus connues';
+        return `<div class="snd-row">
+          <div class="snd-ic">${icon(kind === 'horn' ? 'megaphone' : 'music')}</div>
+          <div class="snd-info"><b>${title}</b><span>${status}</span></div>
+          <div class="snd-actions">
+            ${s || kind === 'horn' ? `<button class="btn btn-sm" data-act="snd-play" data-kind="${kind}">${icon('play', 'ic-sm')}Écouter</button>` : ''}
+            <button class="btn btn-sm" data-act="snd-file" data-kind="${kind}">${icon('upload', 'ic-sm')}Fichier…</button>
+            <button class="btn btn-sm" data-act="snd-link" data-kind="${kind}" aria-expanded="${this.soundLink === kind}">${icon('link', 'ic-sm')}Lien…</button>
+            <button class="btn btn-sm btn-ghost" data-act="snd-search" data-kind="${kind}" data-tip="Ouvre une recherche dans votre navigateur pour trouver le son">${icon('search', 'ic-sm')}Chercher</button>
+            ${s ? `<button class="icon-btn icon-btn-sm" data-act="snd-del" data-kind="${kind}" aria-label="Retirer" data-tip="Retirer (retour au son par défaut)">${icon('trash-2', 'ic-sm')}</button>` : ''}
+          </div>
+          ${s && kind === 'song' ? `<div class="snd-trim"><label>Début de l'extrait <span class="input-unit"><input class="input" type="number" min="0" step="1" value="${Math.round(s.start)}" data-snd-start="${kind}"><span>s</span></span></label>
+            <button class="btn btn-sm btn-ghost" data-act="snd-auto" data-kind="${kind}">${icon('wand-sparkles', 'ic-sm')}Choisir automatiquement</button></div>` : ''}
+          ${this.soundLink === kind ? `<div class="snd-link"><input class="input" id="snd-url" type="url" placeholder="Lien direct vers un fichier audio (…/klaxon.mp3)" spellcheck="false">
+            <button class="btn btn-sm btn-primary" data-act="snd-download" data-kind="${kind}">${icon('download', 'ic-sm')}Télécharger</button></div>` : ''}
+        </div>`;
+      };
+      return `<div class="set-row" style="display:block">
+        <div class="snd-head"><span class="lbl">Sons de l'équipe
+          <button class="info-btn" type="button" data-tip="Chaque équipe a son klaxon synthétisé. Importez le vrai klaxon et la chanson de but de votre équipe (fichier ou lien direct vers un mp3) : Rondelle les copie dans son dossier et garde l'extrait le plus connu. « Chercher » ouvre une recherche dans votre navigateur." aria-label="En savoir plus">${icon('info')}</button></span>
+          <select class="select" id="snd-team">${Object.keys(TEAMS)
+            .sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'fr'))
+            .map((a) => `<option value="${a}" ${a === team ? 'selected' : ''}>${esc(teamLabel(a))}${cfg.audio.teamSounds?.[a] ? ' ♪' : ''}</option>`)
+            .join('')}</select></div>
+        ${row('horn')}${row('song')}</div>`;
+    },
     'adblock-exceptions'(cfg) {
       const list = cfg.stream.adblockExceptions;
       return `<div class="set-row" style="display:block"><div class="set-label"><span class="lbl">Sites sans bloqueur de pubs
@@ -214,13 +252,6 @@ export class SettingsPanel {
           <li>Mettez la vidéo <b>en plein écran</b> sur l'écran choisi ci-dessous.</li>
           <li>Rondelle se pose par-dessus, en transparence : les clics passent à travers. Calibrez le tableau de score une fois (bouton Calibrer).</li></ol></div>`;
     },
-    'voice-status'() {
-      const st = this.actions.voiceStatus?.() ?? {};
-      const label = { off: 'Arrêtée', loading: `Téléchargement du modèle… ${st.progress ?? 0} %`, ready: `Prête (${st.device === 'webgpu' ? 'carte graphique' : 'processeur'})`, error: st.offline ? 'Modèle pas encore téléchargé' : 'Indisponible' }[st.state] ?? '—';
-      const dot = { ready: 'ok', loading: 'warn pulse', error: 'bad' }[st.state] ?? '';
-      return `<div class="set-row"><div class="set-label"><span class="lbl"><span class="status-dot ${dot}"></span>${esc(label)}</span>
-        <div class="desc">${st.lastText ? `Dernière phrase entendue : « ${esc(st.lastText.slice(0, 120))} »${st.ms ? ` (${st.ms} ms)` : ''}` : 'Elle tourne seulement pendant le jeu, jamais pendant les pubs.'}</div></div></div>`;
-    },
     profiles(cfg) {
       const list = cfg.vision.profiles;
       return `${list.length ? `<ul class="list">${list.map((p) => `<li><span class="grow">${esc(p.name)}</span>${p.id === cfg.vision.activeProfile ? '<span class="badge badge-accent">Actif</span>' : `<button class="btn btn-sm btn-ghost" data-act="profile-use" data-id="${esc(p.id)}">Utiliser</button>`}${p.signature ? '' : '<span class="badge" data-tip="La référence du tableau sera apprise au prochain match">À apprendre</span>'}<button class="icon-btn icon-btn-sm" data-act="profile-del" data-id="${esc(p.id)}" aria-label="Supprimer" data-tip="Supprimer ce profil">${icon('trash-2', 'ic-sm')}</button></li>`).join('')}</ul>` : '<div class="empty">Aucun tableau calibré. Pendant le jeu, calibrez le tableau de score du diffuseur : la régie détecte alors les pubs et se synchronise sur l\'horloge.</div>'}
@@ -238,6 +269,8 @@ export class SettingsPanel {
         <button class="btn btn-sm" data-act="diag">${icon('copy', 'ic-sm')}Copier le diagnostic</button>
         <button class="btn btn-sm" data-act="open-data">${icon('folder-open', 'ic-sm')}Dossier des données</button>
         <button class="btn btn-sm" data-act="welcome">${icon('sparkles', 'ic-sm')}Revoir l'accueil</button>
+        <button class="btn btn-sm" data-act="config-export">${icon('file-down', 'ic-sm')}Exporter les réglages</button>
+        <button class="btn btn-sm" data-act="config-import">${icon('file-up', 'ic-sm')}Importer des réglages</button>
         <button class="btn btn-sm btn-danger" data-act="reset">${icon('rotate-ccw', 'ic-sm')}Réinitialiser les réglages</button></div>`;
     },
     about() {
@@ -266,6 +299,50 @@ export class SettingsPanel {
     this.render();
   }
 
+  // Import d'un klaxon ou d'une chanson (fichier, lien direct, ou nouvelle analyse) : le son est copié
+  // dans le dossier de l'app, puis on y cherche l'extrait à jouer (le refrain pour une chanson)
+  async #importSound(kind, url, { reanalyse = false } = {}) {
+    const team = this.soundTeam ?? this.getConfig().team;
+    const toast = this.actions.toast ?? (() => {});
+    let res;
+    if (reanalyse) res = { file: this.getConfig().audio.teamSounds?.[team]?.[kind]?.file, name: this.getConfig().audio.teamSounds?.[team]?.[kind]?.name };
+    else if (url != null) {
+      if (!url) return toast('Collez un lien direct vers un fichier audio', { kind: 'warn' });
+      toast('Téléchargement du son…');
+      res = await window.rondelle.downloadTeamSound(team, kind, url);
+    } else res = await window.rondelle.importTeamSound(team, kind);
+    if (!res) return;
+    if (res.error) return toast(res.error, { kind: 'bad', ms: 8000 });
+    let start = 0;
+    let dur = kind === 'song' ? 15 : 8;
+    try {
+      // On enregistre d'abord le fichier pour pouvoir le relire, puis on l'analyse
+      await this.#save((cfg) => {
+        cfg.audio.teamSounds ??= {};
+        cfg.audio.teamSounds[team] = { ...cfg.audio.teamSounds[team], [kind]: { file: res.file, name: res.name, start, dur } };
+      });
+      const data = await window.rondelle.readTeamSound(team, kind);
+      const ctx = new OfflineAudioContext(1, 1, 44100);
+      const buf = await ctx.decodeAudioData(data);
+      const mono = new Float32Array(buf.length);
+      for (let c = 0; c < buf.numberOfChannels; c++) {
+        const ch = buf.getChannelData(c);
+        for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / buf.numberOfChannels;
+      }
+      ({ start, dur } = bestExcerpt(mono, buf.sampleRate, { kind, dur: kind === 'song' ? 15 : 8 }));
+    } catch (err) {
+      await window.rondelle.removeTeamSound(team, kind);
+      await this.#save((cfg) => delete cfg.audio.teamSounds?.[team]?.[kind]);
+      return toast(`Son illisible : ${err.message}`, { kind: 'bad', ms: 8000 });
+    }
+    this.soundLink = null;
+    await this.#save((cfg) => {
+      const s = cfg.audio.teamSounds?.[team]?.[kind];
+      if (s) Object.assign(s, { start: Math.round(start * 4) / 4, dur });
+    });
+    toast(kind === 'song' ? `Chanson importée : extrait de ${formatClock(start)} à ${formatClock(start + dur)}` : 'Klaxon importé', { kind: 'ok' });
+  }
+
   #item(path) {
     return SETTINGS_ITEMS.find((i) => i.path === path);
   }
@@ -282,6 +359,19 @@ export class SettingsPanel {
 
   async #onChange(e) {
     const t = e.target;
+    if (t.id === 'snd-team') {
+      this.soundTeam = t.value;
+      this.soundLink = null;
+      return this.render();
+    }
+    if (t.dataset.sndStart) {
+      const team = this.soundTeam ?? this.getConfig().team;
+      const v = Math.max(0, Number(t.value) || 0);
+      return this.#save((cfg) => {
+        const s = cfg.audio.teamSounds?.[team]?.[t.dataset.sndStart];
+        if (s) s.start = v;
+      });
+    }
     const path = t.dataset.path;
     if (!path) return;
     const it = this.#item(path);
@@ -324,8 +414,35 @@ export class SettingsPanel {
         return this.render();
       case 'test-goal':
         return a.testGoal();
+      case 'test-sad':
+        return a.test?.('sad');
+      case 'test-penalty':
+        return a.test?.('penalty');
       case 'test-horn':
         return a.testHorn();
+      case 'snd-play':
+        return a.previewSound?.(this.soundTeam ?? this.getConfig().team, b.dataset.kind);
+      case 'snd-search': {
+        const team = this.soundTeam ?? this.getConfig().team;
+        return window.rondelle.openExternal(soundSearchUrl(teamLabel(team), b.dataset.kind));
+      }
+      case 'snd-link':
+        this.soundLink = this.soundLink === b.dataset.kind ? null : b.dataset.kind;
+        this.render();
+        return this.el.querySelector('#snd-url')?.focus();
+      case 'snd-file':
+      case 'snd-download':
+        return this.#importSound(b.dataset.kind, b.dataset.act === 'snd-download' ? this.el.querySelector('#snd-url')?.value.trim() : null);
+      case 'snd-auto':
+        return this.#importSound(b.dataset.kind, null, { reanalyse: true });
+      case 'snd-del': {
+        const team = this.soundTeam ?? this.getConfig().team;
+        await window.rondelle.removeTeamSound(team, b.dataset.kind);
+        return this.#save((cfg) => {
+          if (cfg.audio.teamSounds?.[team]) delete cfg.audio.teamSounds[team][b.dataset.kind];
+          if (cfg.audio.teamSounds?.[team] && !Object.keys(cfg.audio.teamSounds[team]).length) delete cfg.audio.teamSounds[team];
+        });
+      }
       case 'calibrate':
         this.toggle(false);
         return a.calibrate();
@@ -373,6 +490,20 @@ export class SettingsPanel {
       }
       case 'diag':
         return a.copyDiagnostics();
+      case 'config-export': {
+        const r = await window.rondelle.exportConfig();
+        if (r?.file) a.toast?.(`Réglages exportés : ${r.file}`, { kind: 'ok', ms: 7000 });
+        return;
+      }
+      case 'config-import': {
+        const r = await window.rondelle.importConfig();
+        if (r?.error) a.toast?.(r.error, { kind: 'bad', ms: 8000 });
+        else if (r?.ok) {
+          a.toast?.('Réglages importés', { kind: 'ok' });
+          this.render();
+        }
+        return;
+      }
       case 'open-data':
         return window.rondelle.openDataFolder();
       case 'welcome':

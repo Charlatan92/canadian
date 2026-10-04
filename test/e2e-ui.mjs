@@ -36,7 +36,7 @@ await win.click('#calibration [data-act="cancel"]');
 await win.keyboard.press('s');
 await win.waitForSelector('#settings:not([hidden]) .dlg-settings .set-row');
 const sections = await win.$$eval('.set-tab', (els) => els.map((e) => e.dataset.sec));
-checks['12 rubriques'] = sections.length === 12;
+checks['11 rubriques'] = sections.length === 11;
 let missing = [];
 for (const sec of sections) {
   await win.click(`.set-tab[data-sec="${sec}"]`);

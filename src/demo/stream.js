@@ -105,8 +105,18 @@ function drawScorebug(s) {
   ctx.font = 'bold 32px Arial, sans-serif';
   ctx.fillText(String(score.tor), x + 120, y + 29);
   ctx.fillText(String(score.mtl), x + 260, y + 29);
-  ctx.font = 'bold 22px Arial, sans-serif';
-  ctx.fillText('2e', x + 302, y + 29);
+  // Avantage numérique (pénalité à 178 s) : le diffuseur change son tableau (« AN » sur fond jaune)
+  if (s >= 178) {
+    ctx.fillStyle = '#f2c230';
+    ctx.fillRect(x + 282, y + 6, 42, 44);
+    ctx.fillStyle = '#111';
+    ctx.font = 'bold 20px Arial, sans-serif';
+    ctx.fillText('AN', x + 303, y + 29);
+    ctx.fillStyle = '#fff';
+  } else {
+    ctx.font = 'bold 22px Arial, sans-serif';
+    ctx.fillText('2e', x + 302, y + 29);
+  }
   ctx.font = 'bold 32px Arial, sans-serif';
   ctx.fillText(mmss(remaining), x + 366, y + 29);
   ctx.textBaseline = 'alphabetic';
@@ -125,6 +135,24 @@ function drawChannelLogo() {
   ctx.font = 'bold 20px Arial, sans-serif';
   ctx.fillText('TV DÉMO', x + 69, y + 21);
   ctx.textBaseline = 'alphabetic';
+}
+
+// Deuxième pub de la pause : fond blanc (le piège classique de la détection par la « glace »)
+function drawWhiteAd() {
+  ctx.fillStyle = '#fafafa';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#e04959';
+  ctx.beginPath();
+  ctx.arc(W / 2, 250, 70, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#16181d';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 64px Arial, sans-serif';
+  ctx.fillText('Assurances Démo', W / 2, 420);
+  ctx.font = '30px Arial, sans-serif';
+  ctx.fillText('On vous couvre, même en prolongation.', W / 2, 475);
+  ctx.font = '20px Arial, sans-serif';
+  ctx.fillText('(publicité de démonstration)', W / 2, 530);
 }
 
 function drawAd(t) {
@@ -159,7 +187,8 @@ function frame() {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, W, H);
   } else if (seg === 'ad') {
-    drawAd(t);
+    if (s >= 92) drawWhiteAd();
+    else drawAd(t);
   } else {
     drawRink(seg === 'replay' ? t * 0.3 : t);
     if (seg === 'replay') {

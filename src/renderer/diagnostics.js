@@ -50,8 +50,10 @@ export class Diagnostics {
       regie: {
         pub: d.adState,
         sync: d.clockInfo ? { source: d.clockInfo.source, retard: d.clockInfo.delaySec } : null,
-        match: d.game ? { id: d.game.id, etat: d.game.state, equipes: `${d.game.away?.abbrev} @ ${d.game.home?.abbrev}` } : null,
-        voix: d.voice?.status ?? null,
+        match: d.game ? { id: d.game.id, type: d.game.gameType, etat: d.game.state, equipes: `${d.game.away?.abbrev} @ ${d.game.home?.abbrev}`, equipeSuivie: d.game.teamSide } : null,
+        profil: d.activeProfile() ? { nom: d.activeProfile().name, auto: !!d.activeProfile().auto, horloge: !!d.activeProfile().clock } : null,
+        calibrationAuto: d.autoCal.last,
+        buts: d.goalLog.slice(-20),
       },
       reglages: {
         equipe: cfg.team,
@@ -61,7 +63,8 @@ export class Diagnostics {
         theatre: cfg.stream.theatreMode,
         son: cfg.audio.mode,
         affichage: cfg.regie.playerStyle,
-        voix: cfg.voice,
+        celebration: cfg.regie.celebration,
+        synchro: cfg.sync,
       },
     };
   }

@@ -1,103 +1,207 @@
 import { onColor } from '../shared/color.js';
-import { EVENT_LABELS, penaltyLabel, periodName, formatClock, teamColor } from '../shared/nhl.js';
+import { formatClock, penaltyLabel, periodName, teamColor } from '../shared/nhl.js';
 import { teamTheme } from '../shared/theme.js';
 import { $, esc, icon, initials, ordinalFr, photoHtml, teamLogoHtml } from './util.js';
 
-const POS_FR = { C: 'Centre', L: 'Ailier G.', R: 'Ailier D.', D: 'Défenseur', G: 'Gardien' };
+// ---------------------------------------------------------------- Fil des actions (« kill feed »)
 
-// ---------------------------------------------------------------- Carte du joueur (style FIFA)
+// Une ligne par action, en petit, comme le fil des éliminations d'un jeu vidéo :
+// [tête] Caufield  (icône) tir  Woll
+const FEED = {
+  faceoff: { icon: 'arrow-left-right', verb: 'mise en jeu', actor: 'winningPlayerId', target: 'losingPlayerId' },
+  'shot-on-goal': { icon: 'target', verb: 'tir', actor: 'shootingPlayerId', target: 'goalieInNetId' },
+  'missed-shot': { icon: 'move-up-right', verb: 'tir raté', actor: 'shootingPlayerId' },
+  'blocked-shot': { icon: 'shield', verb: 'bloque', actor: 'blockingPlayerId', target: 'shootingPlayerId' },
+  hit: { icon: 'zap', verb: 'mise en échec', actor: 'hittingPlayerId', target: 'hitteePlayerId' },
+  takeaway: { icon: 'hand-grab', verb: 'vole la rondelle', actor: 'playerId' },
+  giveaway: { icon: 'circle-slash', verb: 'perd la rondelle', actor: 'playerId' },
+};
 
-export class PlayerCard {
+export const FEED_TYPES = new Set(Object.keys(FEED));
+
+export class FeedBoard {
   constructor(el) {
     this.el = el;
-    this.hideTimer = null;
-    this.shownAt = 0;
-    this.queued = null;
-    this.current = null;
+    this.max = 6;
   }
 
-  // style : 'card' (photo + nom) | 'name' (nom seulement) | 'emoji' (tête émoji)
-  // play : action LNH (ou null quand c'est le commentateur qui nomme le joueur) ; label : texte forcé
-  show(opts) {
-    // Pas plus d'un changement de carte toutes les 1,2 s : sinon ça clignote
-    const wait = 1200 - (Date.now() - this.shownAt);
-    if (wait > 0) {
-      this.queued = opts;
-      clearTimeout(this.queueTimer);
-      this.queueTimer = setTimeout(() => {
-        const q = this.queued;
-        this.queued = null;
-        if (q) this.show(q);
-      }, wait);
-      return;
-    }
-    const { player, play = null, stats, durationSec = 5, style = 'card', label = null, emojiUrl = null } = opts;
-    this.shownAt = Date.now();
-    this.current = player.id;
-    const action = label ?? (play?.type === 'penalty' ? penaltyLabel(play.details?.descKey) : EVENT_LABELS[play?.type] ?? '');
-    this.el.className = `player-card style-${style}`;
-    const color = teamColor(player.teamAbbrev);
+  // style : 'photo' | 'name' | 'emoji' ; heads(player) -> url d'une tête émoji déjà prête (ou null)
+  push(play, game, { style = 'photo', durationSec = 8, heads = null } = {}) {
+    const f = FEED[play.type];
+    if (!f || !game) return false;
+    const d = play.details ?? {};
+    const actor = game.players.get(d[f.actor] ?? play.playerId);
+    if (!actor) return false;
+    const target = f.target ? game.players.get(d[f.target]) : null;
+    const row = document.createElement('div');
+    row.className = 'feed-row';
+    row.style.setProperty('--team', teamColor(actor.teamAbbrev));
+    row.style.setProperty('--opp', target ? teamColor(target.teamAbbrev) : 'transparent');
+    row.dataset.player = actor.id;
+    row.innerHTML = `${style === 'name' ? '' : headHtml(actor, style, heads)}<b class="feed-name">${esc(actor.last)}</b>
+      <span class="feed-act">${icon(f.icon, 'ic-sm')}<span>${esc(f.verb)}</span></span>
+      ${target ? `<span class="feed-target">${esc(target.last)}</span>` : ''}`;
+    this.el.prepend(row);
+    while (this.el.children.length > this.max) this.el.lastElementChild.remove();
+    setTimeout(() => {
+      row.classList.add('leaving');
+      setTimeout(() => row.remove(), 400);
+    }, durationSec * 1000);
+    return true;
+  }
+
+  // La tête émoji est arrivée après coup (première génération)
+  updateEmoji(playerId, url) {
+    for (const h of this.el.querySelectorAll(`.feed-row[data-player="${playerId}"] .feed-head`)) h.outerHTML = `<img class="feed-head emoji" src="${esc(url)}" alt="">`;
+  }
+
+  clear() {
+    this.el.innerHTML = '';
+  }
+}
+
+function headHtml(player, style, heads) {
+  if (style === 'emoji') {
+    const url = heads?.(player);
+    return url ? `<img class="feed-head emoji" src="${esc(url)}" alt="">` : `<span class="feed-head num">${esc(player.number ?? '')}</span>`;
+  }
+  return player.headshot ? `<span class="feed-head">${photoHtml(player.headshot, initials(player))}</span>` : `<span class="feed-head num">${esc(player.number ?? '')}</span>`;
+}
+
+// ---------------------------------------------------------------- Prison des pénalités
+
+// À chaque pénalité : le joueur fautif derrière les barreaux (4,5 s), puis une petite « cellule »
+// reste affichée avec le temps de punition qui reste, compté sur le temps de jeu de VOTRE stream.
+export class PenaltyBox {
+  constructor(el, cells) {
+    this.el = el;
+    this.cells = cells;
+    this.timer = null;
+  }
+
+  jail({ player, play, game, emojiUrl = null, durationSec = 4.5 }) {
+    const d = play?.details ?? {};
+    const color = teamColor(player?.teamAbbrev ?? game?.opp?.abbrev);
     this.el.style.setProperty('--team', color);
     this.el.style.setProperty('--team-on', onColor(color));
-    if (style === 'name') this.el.innerHTML = nameplateHtml(player, action);
-    else if (style === 'emoji') this.el.innerHTML = emojiHtml(player, action, emojiUrl);
-    else this.el.innerHTML = cardHtml(player, action, stats);
-    void this.el.offsetWidth; // relance l'animation d'entrée
-    this.el.classList.add('show');
-    clearTimeout(this.hideTimer);
-    this.hideTimer = setTimeout(() => this.hide(), durationSec * 1000);
-  }
-
-  // La tête émoji est arrivée après coup (première génération) : on l'affiche si c'est toujours lui
-  updateEmoji(playerId, url) {
-    if (this.current !== playerId || !this.el.classList.contains('style-emoji')) return;
-    const box = this.el.querySelector('.pe-head');
-    if (box) box.outerHTML = `<img class="pe-head" src="${esc(url)}" alt="">`;
-  }
-
-  hide() {
-    clearTimeout(this.hideTimer);
+    const face = emojiUrl ? `<img class="jail-emoji" src="${esc(emojiUrl)}" alt="">` : player?.headshot ? photoHtml(player.headshot, initials(player)) : '';
+    this.el.innerHTML = `
+      <div class="jail-cell">
+        <div class="jail-face">${face || `<span class="jail-num">${esc(player?.number ?? '?')}</span>`}</div>
+        <div class="jail-bars">${'<i></i>'.repeat(7)}</div>
+      </div>
+      <div class="jail-text">
+        <div class="jail-stamp">Au cachot !</div>
+        <div class="jail-name">${esc(player?.name ?? 'Pénalité')}${player?.teamAbbrev ? ` <span>${esc(player.teamAbbrev)}</span>` : ''}</div>
+        <div class="jail-why">${icon('lock', 'ic-sm')}${esc(penaltyLabel(d.descKey))} · ${esc(String(d.duration ?? 2))} min</div>
+      </div>`;
     this.el.classList.remove('show');
-    this.current = null;
+    void this.el.offsetWidth;
+    this.el.classList.add('show');
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.el.classList.remove('show'), durationSec * 1000);
+  }
+
+  // list : [{ id, player, remaining (s) }] — les punitions en cours sur le stream
+  render(list, { style = 'photo', heads = null } = {}) {
+    const key = list.map((p) => `${p.id}:${Math.ceil(p.remaining)}`).join('|');
+    if (key === this.lastKey) return;
+    this.lastKey = key;
+    if (!list.length) {
+      this.cells.classList.remove('show');
+      this.cells.innerHTML = '';
+      return;
+    }
+    this.cells.classList.add('show');
+    this.cells.innerHTML = `<div class="cells-head">${icon('lock', 'ic-sm')}Prison</div>${list
+      .map((p) => {
+        const pl = p.player;
+        const head = style === 'name' || !pl ? '' : headHtml(pl, style, heads);
+        return `<div class="cell-row" style="--team:${teamColor(pl?.teamAbbrev)}">${head}<b>${esc(pl?.last ?? '—')}</b><span class="cell-time">${formatClock(p.remaining)}</span></div>`;
+      })
+      .join('')}`;
   }
 }
 
-function cardHtml(player, action, stats) {
-  const s = stats ?? {};
-  const pts = (s.g ?? 0) + (s.a1 ?? 0) + (s.a2 ?? 0);
-  const statLine =
-    player.pos === 'G'
-      ? ''
-      : `<span><b>${s.g ?? 0}</b>B</span><span><b>${(s.a1 ?? 0) + (s.a2 ?? 0)}</b>A</span><span><b>${s.sog ?? 0}</b>TIRS</span><span><b>${s.hits ?? 0}</b>MÉ</span>`;
-  return `
-      <div class="pc-photo">${photoHtml(player.headshot, initials(player))}</div>
-      <div class="pc-body">
-        <div class="pc-num">${esc(player.number ?? '')}</div>
-        <div class="pc-first">${esc(player.first)} · ${esc(player.teamAbbrev ?? '')}</div>
-        <div class="pc-last">${esc(player.last)}</div>
-        <div class="pc-meta">
-          ${action ? `<span class="pc-chip">${esc(action)}</span>` : ''}
-          <span class="pc-chip ghost">${esc(POS_FR[player.pos] ?? player.pos)}</span>
-          ${pts >= 2 ? '<span class="pc-chip ghost">En feu</span>' : ''}
-        </div>
-        <div class="pc-stats">${statLine}</div>
-      </div>`;
-}
+// ---------------------------------------------------------------- But adverse (version triste)
 
-// Plaque façon FIFA : numéro dans la couleur de l'équipe, nom en grand
-function nameplateHtml(player, action) {
-  return `
-      <div class="pn-num">${esc(player.number ?? '')}</div>
-      <div class="pn-body">
-        <div class="pn-first">${esc(player.first)}</div>
-        <div class="pn-last">${esc(player.last)}</div>
-        ${action ? `<div class="pn-action">${esc(action)}</div>` : ''}
-      </div>`;
-}
+// L'inverse de la célébration : l'image se ternit, la pluie tombe aux couleurs de l'adversaire,
+// le mot « but » s'affaisse. Le son (trombone triste) est joué par le klaxon.
+export class SadGoal {
+  constructor(el, canvas) {
+    this.el = el;
+    this.canvas = canvas;
+    this.timer = null;
+    this.raf = null;
+    this.active = false;
+  }
 
-function emojiHtml(player, action, url) {
-  const head = url ? `<img class="pe-head" src="${esc(url)}" alt="">` : `<div class="pe-head pe-wait">${esc(player.number ?? initials(player))}</div>`;
-  return `${head}${action ? `<div class="pe-action">${esc(action)}</div>` : ''}`;
+  start({ player, play, game, score, durationSec = 6 }) {
+    this.stop();
+    this.active = true;
+    const d = play?.details ?? {};
+    const opp = game?.opp;
+    this.el.style.setProperty('--opp', teamColor(opp?.abbrev));
+    const line = [player ? `${player.name}${d.scoringPlayerTotal ? ` · ${ordinalFr(d.scoringPlayerTotal)} but de la saison` : ''}` : opp ? `Les ${opp.name}` : '', score && game ? `${game.team.abbrev} ${score.team} – ${score.opp} ${opp?.abbrev ?? ''}` : ''].filter(Boolean);
+    this.el.querySelectorAll('.sad-veil, .sad-word, .sad-info').forEach((n) => n.remove());
+    this.el.insertAdjacentHTML(
+      'beforeend',
+      `<div class="sad-veil"></div><div class="sad-word">${icon('heart-crack')}<span>But</span></div>
+       <div class="sad-info"><div class="sad-team">${esc(opp?.name ? `But des ${opp.name}` : 'But adverse')}</div>${line.map((l) => `<div class="sad-line">${esc(l)}</div>`).join('')}</div>`,
+    );
+    this.el.classList.add('show');
+    this.#rain(durationSec, teamColor(opp?.abbrev));
+    this.timer = setTimeout(() => this.stop(), durationSec * 1000);
+  }
+
+  stop() {
+    clearTimeout(this.timer);
+    cancelAnimationFrame(this.raf);
+    this.active = false;
+    this.el.classList.remove('show');
+    this.el.querySelectorAll('.sad-veil, .sad-word, .sad-info').forEach((n) => n.remove());
+    this.canvas.getContext('2d').clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  // Pluie fine et oblique, quelques gouttes aux couleurs de l'adversaire
+  #rain(durationSec, color) {
+    const c = this.canvas;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    c.width = c.clientWidth * dpr;
+    c.height = c.clientHeight * dpr;
+    const ctx = c.getContext('2d');
+    const drops = Array.from({ length: 220 }, () => ({
+      x: Math.random() * c.width * 1.2,
+      y: Math.random() * -c.height,
+      v: (9 + Math.random() * 8) * dpr,
+      l: (14 + Math.random() * 22) * dpr,
+      tinted: Math.random() < 0.18,
+    }));
+    const end = performance.now() + Math.max(1500, durationSec * 1000 - 1200);
+    const frame = (now) => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      const fading = now > end;
+      let alive = 0;
+      ctx.lineWidth = 1.4 * dpr;
+      for (const p of drops) {
+        p.y += p.v;
+        p.x -= p.v * 0.18;
+        if (p.y > c.height) {
+          if (fading) continue;
+          p.y = -p.l;
+          p.x = Math.random() * c.width * 1.2;
+        }
+        alive++;
+        ctx.strokeStyle = p.tinted ? color : 'rgba(190, 205, 225, 0.55)';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x + p.l * 0.18, p.y - p.l);
+        ctx.stroke();
+      }
+      if (alive) this.raf = requestAnimationFrame(frame);
+    };
+    this.raf = requestAnimationFrame(frame);
+  }
 }
 
 // ---------------------------------------------------------------- Bandeau bas de l'écran
@@ -150,6 +254,23 @@ export class Celebration {
   start({ player, play, game, durationSec = 9, confetti = true, emojiUrl = null, logos = true }) {
     this.stop();
     this.active = true;
+    this.logos = logos;
+    const scorer = this.#scorerHtml({ player, play, game, emojiUrl, logos });
+    this.el.querySelectorAll('.cel-flash, .cel-word, .cel-scorer').forEach((n) => n.remove());
+    this.el.insertAdjacentHTML('beforeend', `<div class="cel-flash"></div><div class="cel-word">BUT !</div>${scorer}`);
+    this.el.classList.add('show');
+    if (confetti) this.#confetti(durationSec, teamTheme(game?.team?.abbrev).confetti);
+    this.timer = setTimeout(() => this.stop(), durationSec * 1000);
+  }
+
+  // Le but a été vu à l'écran avant que l'API le publie : on complète avec le marqueur dès qu'il est connu
+  updateScorer(player, play, game, emojiUrl = null) {
+    if (!this.active || !player) return;
+    const box = this.el.querySelector('.cel-scorer');
+    if (box) box.outerHTML = this.#scorerHtml({ player, play, game, emojiUrl, logos: this.logos });
+  }
+
+  #scorerHtml({ player, play, game, emojiUrl, logos }) {
     const d = play?.details ?? {};
     const assists = [d.assist1PlayerId, d.assist2PlayerId]
       .map((id) => game?.players.get(id))
@@ -166,11 +287,7 @@ export class Celebration {
            ${lines.filter(Boolean).map((l) => `<div class="cel-line">${esc(l)}</div>`).join('')}</div>
          </div>`
       : `<div class="cel-scorer">${game?.team?.abbrev ? teamLogoHtml(game.team.abbrev, { cls: 'cel-logo', logos }) : ''}<div><div class="cel-name">But des ${esc(game?.team?.name ?? 'vôtres')} !</div><div class="cel-line">${esc(chant(game?.team?.abbrev, game?.team?.name))}</div></div></div>`;
-    this.el.querySelectorAll('.cel-flash, .cel-word, .cel-scorer').forEach((n) => n.remove());
-    this.el.insertAdjacentHTML('beforeend', `<div class="cel-flash"></div><div class="cel-word">BUT !</div>${scorer}`);
-    this.el.classList.add('show');
-    if (confetti) this.#confetti(durationSec, teamTheme(game?.team?.abbrev).confetti);
-    this.timer = setTimeout(() => this.stop(), durationSec * 1000);
+    return scorer;
   }
 
   stop() {
@@ -301,7 +418,9 @@ export class Hud {
 }
 
 export const overlayRefs = () => ({
-  card: new PlayerCard($('#player-card')),
+  feed: new FeedBoard($('#feed')),
+  jail: new PenaltyBox($('#jail'), $('#jail-cells')),
+  sad: new SadGoal($('#sad-goal'), $('#rain')),
   banner: new Banner($('#banner')),
   tension: new TensionFx($('#fx-tension')),
   celebration: new Celebration($('#celebration'), $('#confetti')),

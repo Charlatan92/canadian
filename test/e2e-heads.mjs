@@ -78,24 +78,32 @@ await save(u1, 'tete-photo.png');
 await save(u2, 'tete-casque.png');
 checks['tête mise en cache sur disque'] = fs.existsSync(path.join(userData, 'heads', 'p990013.png'));
 
-// Affichage à l'écran dans les deux nouveaux styles
-for (const style of ['name', 'emoji']) {
+// Fil des actions dans les trois styles : photo, nom seul, tête émoji
+for (const style of ['photo', 'name', 'emoji']) {
   await win.evaluate((st) => {
-    const h = window.__rondelle;
-    const cfg = h.getConfig();
+    const cfg = window.__rondelle.getConfig();
     cfg.regie.playerStyle = st;
-    cfg.regie.playerCardFilter = 'all';
+    cfg.regie.feedFilter = 'all';
   }, style);
   await win.waitForFunction(() => window.__rondelle.director.game, null, { timeout: 20_000 });
   await win.evaluate((p) => {
     const d = window.__rondelle.director;
     d.adState = 'game';
-    d.overlays.card.shownAt = 0;
-    d.showPlayer({ ...p, teamId: d.game.team.id, pos: 'R', name: `${p.first} ${p.last}` }, { label: 'À la rondelle' });
+    d.overlays.celebration.stop(); // une célébration en cours met le fil en pause
+    d.overlays.sad.stop();
+    d.game.players.set(p.id, { ...p, teamId: d.game.team.id, pos: 'R', name: `${p.first} ${p.last}` });
+    const goalie = [...d.game.players.values()].find((x) => x.teamId === d.game.opp.id && x.pos === 'G');
+    d.feedPlay({ id: `t-${Math.random()}`, type: 'shot-on-goal', playerId: p.id, details: { shootingPlayerId: p.id, goalieInNetId: goalie?.id } });
   }, withPhoto);
   await new Promise((r) => setTimeout(r, 900));
-  checks[`affichage « ${style} »`] = await win.evaluate((st) => !!document.querySelector(`#player-card.show.style-${st}`), style);
-  await win.screenshot({ path: path.join(outDir, `affichage-${style}.png`) });
+  checks[`fil des actions « ${style} »`] = await win.evaluate((st) => {
+    const row = document.querySelector('#feed .feed-row');
+    if (!row || !/Photo/i.test(row.textContent)) return false;
+    if (st === 'name') return !row.querySelector('.feed-head');
+    if (st === 'emoji') return !!row.querySelector('img.feed-head.emoji');
+    return !!row.querySelector('.feed-head');
+  }, style);
+  await win.screenshot({ path: path.join(outDir, `fil-${style}.png`) });
 }
 
 const exported = await win.evaluate(() => window.rondelle.exportHeads({ folder: 'Test export', files: [{ key: 'p990013', name: '13 Test Photo' }], open: false }));

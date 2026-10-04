@@ -224,127 +224,134 @@ function phHtml(p, color = null) {
   return `<div class="ph"${style}>${inner}</div>`;
 }
 
-function tiles(list) {
-  return `<div class="tiles">${list.map(([k, n]) => `<div class="tile"><div class="k">${esc(k)}</div><div class="n">${esc(n)}</div></div>`).join('')}</div>`;
+// --- Face à face : votre équipe à gauche, l'adversaire à droite ----------------------------
+
+// Deux colonnes et un « VS » au milieu ; une seule colonne si l'adversaire est masqué
+function versus(left, right, middle = null) {
+  if (!right) return `<div class="vs vs-single">${left}</div>`;
+  return `<div class="vs">${left}<div class="vs-mid">${middle ?? '<span class="vs-badge">VS</span>'}</div>${right}</div>`;
 }
 
-function seasonLine(club, id) {
-  return club?.skaters?.find((s) => s.playerId === id) ?? null;
+function vsCard({ player, color, side, title, sub = '', body = '' }) {
+  const p = player ?? {};
+  return `<div class="vs-card vs-${side}" style="--col:${color}">
+    <div class="vs-top">${phHtml(p, color)}<div class="vs-id"><span class="vs-kicker">${esc(title)}</span><b>${esc(p.last ?? '—')}</b><span>${esc(sub)}</span></div></div>
+    ${body}</div>`;
 }
 
-function last5Html(games, color = RED) {
-  if (!games?.length) return '';
-  const max = Math.max(3, ...games.map((g) => g.points ?? 0));
-  return `<div class="legend" style="margin-top:6px">Forme récente (points, ${games.length} derniers matchs avant celui-ci)</div>
-    <svg viewBox="0 -14 300 94" style="width:300px;height:94px" role="img" aria-label="Forme récente">
-      ${games
-        .slice()
-        .reverse()
-        .map((g, i) => {
-          const h = ((g.points ?? 0) / max) * 56;
-          return `<rect x="${i * 58 + 8}" y="${62 - h}" width="24" height="${Math.max(h, 1)}" rx="4" fill="${color}"/>
-            <text x="${i * 58 + 20}" y="${58 - h}" fill="#f2f4f8" font-size="12" text-anchor="middle">${g.points ?? 0}</text>
-            <text x="${i * 58 + 20}" y="77" fill="#7d8899" font-size="10" text-anchor="middle">${esc(g.opponentAbbrev ?? '')}</text>`;
-        })
-        .join('')}
-    </svg>`;
+function miniTiles(list) {
+  return `<div class="vs-tiles">${list.map(([k, n]) => `<div><b>${esc(n)}</b><span>${esc(k)}</span></div>`).join('')}</div>`;
 }
 
-// Joueur du match jusqu'ici, pour l'équipe suivie ou pour l'adversaire
-async function sceneStar({ game, stats }, side = 'team') {
+const sideColor = (side) => (side === 'team' ? RED : BLUE);
+const clubOf = (game, side) => (side === 'team' ? game.team : game.opp);
+
+// Les joueurs du match jusqu'ici, un par équipe
+async function sceneStars({ game, stats }, sides) {
   if (!game || !stats) return null;
-  const club = side === 'team' ? game.team : game.opp;
-  const [top] = topPerformers(game, stats, club.id, 1);
-  if (!top || top.score <= 0.05) return null;
-  const p = top.player;
-  const s = top.stats;
-  const landing = await withTimeout(this.nhl.playerLanding(p.id), 1500);
-  const pre = pregameTotals(landing, game.id);
-  const season = pre.season;
-  const fo = s.fow + s.fol;
-  const color = side === 'team' ? RED : BLUE;
-  return `
-    <div class="feature" style="--feature-accent:${color}">
-      ${phHtml(p, side === 'opp' ? color : null)}
-      <div>
-        <h2>${side === 'team' ? "Joueur du match (jusqu'ici)" : `Chez les ${esc(club.name)}`}</h2>
-        <p class="lede">${esc(p.first)} ${esc(p.last)} · #${esc(p.number ?? '')} · ${side === 'team' ? "selon l'indice d'impact de la régie" : "le plus dangereux de l'adversaire jusqu'ici"}</p>
-        ${tiles([
-          ['Buts', s.g],
-          ['Aides', s.a1 + s.a2],
-          ['Tirs', s.sog],
-          ['Mises en échec', s.hits],
-          ['Tirs bloqués', s.blk],
-          ...(fo >= 4 ? [['Mises en jeu', `${Math.round((100 * s.fow) / fo)} %`]] : []),
-        ])}
-        ${season?.gamesPlayed ? `<div class="legend">Saison avant ce match : ${season.gamesPlayed} PJ · ${season.goals ?? 0} B · ${season.assists ?? 0} A · ${season.points ?? 0} PTS${season.plusMinus != null ? ` · ${season.plusMinus > 0 ? '+' : ''}${season.plusMinus}` : ''}</div>` : ''}
-        ${last5Html(pre.last5, color)}
-      </div>
-    </div>`;
-}
-
-// Sous la loupe : un des meilleurs pointeurs de la saison, en alternant les deux équipes
-async function sceneSpotlight({ game }, sides) {
-  const turn = this.spotlight++;
-  const oppTurn = sides.includes('opp') && game && (!sides.includes('team') || turn % 2 === 1);
-  const abbrev = oppTurn ? game.opp.abbrev : (game?.team?.abbrev ?? this.getConfig().team);
-  const club = await this.nhl.clubStats(abbrev);
-  const skaters = (club?.skaters ?? []).filter((s) => s.gamesPlayed > 0).sort((a, b) => b.points - a.points);
-  if (!skaters.length) return null;
-  const line = skaters[Math.floor(turn / (sides.length || 1)) % Math.min(5, skaters.length)];
-  const landing = await withTimeout(this.nhl.playerLanding(line.playerId), 1500);
-  // Fiche ramenée à « avant ce match » si possible (la fiche de club peut déjà compter ce soir)
-  const pre = game ? pregameTotals(landing, game.id) : null;
-  const s = pre?.season?.gamesPlayed ? { ...line, ...pre.season } : line;
-  const first = line.firstName?.default ?? '';
-  const last = line.lastName?.default ?? '';
-  const insights = [];
-  insights.push(`${s.points} points en ${s.gamesPlayed} matchs, soit ${(s.points / s.gamesPlayed).toFixed(2).replace('.', ',')} par match.`);
-  if (s.shots) insights.push(`Taux de réussite de ${((100 * s.goals) / s.shots).toFixed(1).replace('.', ',')} % sur ${s.shots} tirs.`);
-  if (s.powerPlayGoals) insights.push(`${s.powerPlayGoals} but${s.powerPlayGoals > 1 ? 's' : ''} en avantage numérique.`);
-  if (line.avgTimeOnIcePerGame) insights.push(`${formatToi(line.avgTimeOnIcePerGame)} de temps de glace moyen par match.`);
-  const l5 = pre?.last5 ?? landing?.last5Games;
-  if (l5?.length) {
-    const pts = l5.reduce((n, g) => n + (g.points ?? 0), 0);
-    insights.push(pts >= 5 ? `En feu : ${pts} points à ses ${l5.length} derniers matchs.` : `${pts} point${pts > 1 ? 's' : ''} à ses ${l5.length} derniers matchs.`);
+  const cards = {};
+  for (const side of sides) {
+    const club = clubOf(game, side);
+    const [top] = topPerformers(game, stats, club.id, 1);
+    if (!top || top.score <= 0.05) continue;
+    const p = top.player;
+    const st = top.stats;
+    const landing = await withTimeout(this.nhl.playerLanding(p.id), 1500);
+    const season = pregameTotals(landing, game.id).season;
+    const fo = st.fow + st.fol;
+    cards[side] = vsCard({
+      player: p,
+      color: sideColor(side),
+      side,
+      title: club.name,
+      sub: `#${p.number ?? ''} · ${p.first}`,
+      body: `${miniTiles([
+        ['Buts', st.g],
+        ['Aides', st.a1 + st.a2],
+        ['Tirs', st.sog],
+        ['Mises en échec', st.hits],
+        ...(fo >= 4 ? [['Mises en jeu', `${Math.round((100 * st.fow) / fo)} %`]] : [['Tirs bloqués', st.blk]]),
+      ])}${season?.gamesPlayed ? `<div class="vs-foot">Saison avant ce match : ${season.goals ?? 0} B · ${season.assists ?? 0} A · ${season.points ?? 0} PTS en ${season.gamesPlayed} PJ</div>` : ''}`,
+    });
   }
-  return `
-    <div class="feature" style="--feature-accent:${oppTurn ? BLUE : RED}">
-      ${phHtml({ headshot: line.headshot, first, last, number: line.sweaterNumber }, oppTurn ? BLUE : null)}
-      <div>
-        <h2>${oppTurn ? 'À surveiller' : 'Sous la loupe'} : ${esc(last)}</h2>
-        <p class="lede">${esc(first)} ${esc(last)} · ${esc(teamLabel(abbrev))} · saison avant ce match</p>
-        ${tiles([
-          ['Matchs', s.gamesPlayed],
-          ['Buts', s.goals],
-          ['Aides', s.assists],
-          ['Points', s.points],
-          ['+/-', `${s.plusMinus > 0 ? '+' : ''}${s.plusMinus ?? 0}`],
-        ])}
-        <ul class="insights">${insights.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-      </div>
-    </div>`;
+  if (!cards.team && !cards.opp) return null;
+  return `<h2>Les joueurs du match</h2><p class="lede">Le plus influent de chaque équipe jusqu'ici, selon l'indice d'impact de la régie.</p>
+    ${versus(cards.team ?? emptyCard('team', game), sides.includes('opp') ? (cards.opp ?? emptyCard('opp', game)) : null)}`;
 }
 
-async function sceneGoalies({ game, stats }) {
+function emptyCard(side, game) {
+  return `<div class="vs-card vs-${side} vs-empty" style="--col:${sideColor(side)}"><span>${esc(clubOf(game, side).name)} : rien de marquant pour l'instant</span></div>`;
+}
+
+// Duel : un des meilleurs pointeurs de chaque équipe, saisons comparées ligne par ligne
+async function sceneDuel({ game }, sides) {
+  if (!game) return null;
+  const turn = this.spotlight++;
+  const pick = async (side) => {
+    const club = await this.nhl.clubStats(clubOf(game, side).abbrev);
+    const skaters = (club?.skaters ?? []).filter((x) => x.gamesPlayed > 0).sort((a, b) => b.points - a.points);
+    if (!skaters.length) return null;
+    const line = skaters[turn % Math.min(4, skaters.length)];
+    const landing = await withTimeout(this.nhl.playerLanding(line.playerId), 1500);
+    const pre = pregameTotals(landing, game.id);
+    const st = pre.season?.gamesPlayed ? { ...line, ...pre.season } : line;
+    const l5 = pre.last5.length ? pre.last5 : (landing?.last5Games ?? []);
+    return { side, line, st, form: l5.reduce((n, g) => n + (g.points ?? 0), 0), formN: l5.length, player: { headshot: line.headshot, first: line.firstName?.default ?? '', last: line.lastName?.default ?? '', number: line.sweaterNumber } };
+  };
+  const a = await pick('team');
+  const b = sides.includes('opp') ? await pick('opp') : null;
+  if (!a) return null;
+  const card = (x) =>
+    vsCard({ player: x.player, color: sideColor(x.side), side: x.side, title: x.side === 'team' ? 'Sous la loupe' : 'À surveiller', sub: `${clubOf(game, x.side).name} · saison avant ce match`, body: x.formN ? `<div class="vs-foot">${x.form} point${x.form > 1 ? 's' : ''} à ses ${x.formN} derniers matchs</div>` : '' });
+  const rows = [
+    ['Buts', (x) => x.st.goals ?? 0],
+    ['Aides', (x) => x.st.assists ?? 0],
+    ['Points', (x) => x.st.points ?? 0],
+    ['Points / match', (x) => (x.st.gamesPlayed ? (x.st.points / x.st.gamesPlayed).toFixed(2).replace('.', ',') : '0')],
+    ['+/-', (x) => `${(x.st.plusMinus ?? 0) > 0 ? '+' : ''}${x.st.plusMinus ?? 0}`],
+    ['Buts en avantage', (x) => x.st.powerPlayGoals ?? 0],
+  ];
+  const middle = b
+    ? `<div class="vs-rows">${rows
+        .map(([label, f]) => {
+          const va = f(a);
+          const vb = f(b);
+          const na = Number(String(va).replace(',', '.'));
+          const nb = Number(String(vb).replace(',', '.'));
+          const max = Math.max(Math.abs(na), Math.abs(nb), 0.01);
+          return `<div class="vs-row"><b class="${na > nb ? 'lead' : ''}">${esc(va)}</b><i style="--w:${(Math.max(0, na) / max) * 100}%;--c:${RED}"></i><span>${esc(label)}</span><i class="r" style="--w:${(Math.max(0, nb) / max) * 100}%;--c:${BLUE}"></i><b class="${nb > na ? 'lead' : ''}">${esc(vb)}</b></div>`;
+        })
+        .join('')}</div>`
+    : null;
+  return `<h2>Face à face</h2><p class="lede">Deux des meilleurs pointeurs de chaque équipe, saison avant ce match.</p>${versus(card(a), b ? card(b) : null, middle)}`;
+}
+
+async function sceneGoalies({ game, stats }, sides) {
   if (!game || !stats || !stats.goalies.size) return null;
   const [clubA, clubB] = await Promise.all([this.nhl.clubStats(game.team.abbrev), this.nhl.clubStats(game.opp.abbrev)]);
-  const cards = [];
+  const cards = {};
   for (const [id, g] of stats.goalies) {
     const p = game.players.get(id);
     if (!p || !g.sa) continue;
-    const ours = p.teamId === game.team.id;
-    const season = (ours ? clubA : clubB)?.goalies?.find((x) => x.playerId === id);
+    const side = p.teamId === game.team.id ? 'team' : 'opp';
+    if (cards[side]) continue;
+    const season = (side === 'team' ? clubA : clubB)?.goalies?.find((x) => x.playerId === id);
     const sv = ((g.sa - g.ga) / g.sa).toFixed(3).replace(/^0/, '');
-    cards.push(`<div class="tile" style="border-left:4px solid ${ours ? RED : BLUE}">
-      <div class="k">${esc(p.teamAbbrev)} · #${esc(p.number ?? '')}</div>
-      <div class="n">${esc(p.last)}</div>
-      <div class="legend" style="margin:6px 0 0">Ce soir : ${g.sa - g.ga} arrêts sur ${g.sa} tirs (${sv})</div>
-      ${season ? `<div class="legend" style="margin:2px 0 0">Saison : ${(season.savePercentage ?? 0).toFixed(3).replace(/^0/, '')} · ${(season.goalsAgainstAverage ?? 0).toFixed(2)} MPM</div>` : ''}
-    </div>`);
+    cards[side] = vsCard({
+      player: p,
+      color: sideColor(side),
+      side,
+      title: clubOf(game, side).name,
+      sub: `#${p.number ?? ''} · gardien`,
+      body: `${miniTiles([
+        ['Arrêts', g.sa - g.ga],
+        ['Tirs reçus', g.sa],
+        ['Efficacité', sv],
+      ])}${season ? `<div class="vs-foot">Saison : ${(season.savePercentage ?? 0).toFixed(3).replace(/^0/, '')} · ${(season.goalsAgainstAverage ?? 0).toFixed(2)} de moyenne</div>` : ''}`,
+    });
   }
-  if (!cards.length) return null;
-  return `<h2>Devant le filet</h2><p class="lede">Les gardiens jusqu'ici.</p><div class="tiles" style="grid-template-columns:repeat(2,minmax(260px,420px))">${cards.join('')}</div>`;
+  if (!cards.team && !cards.opp) return null;
+  return `<h2>Devant le filet</h2><p class="lede">Les gardiens jusqu'ici.</p>${versus(cards.team ?? emptyCard('team', game), sides.includes('opp') ? (cards.opp ?? emptyCard('opp', game)) : null)}`;
 }
 
 function sceneGoals({ game, stats }) {
@@ -398,45 +405,37 @@ function sceneGoalStory({ game, stats }) {
 }
 
 // Le saviez-vous ? Anecdotes sur un joueur de ce soir (les deux équipes, en alternance)
+// Le saviez-vous ? Un joueur de chaque équipe, quelques anecdotes chacun, face à face
 async function sceneFacts({ game, stats }, sides) {
   if (!game) return null;
-  const pool = [];
-  for (const side of sides) {
-    const club = side === 'team' ? game.team : game.opp;
+  const turn = this.factsIndex++;
+  const cfg = this.getConfig();
+  const lang = cfg.stream.languagePriority?.[0] === 'en' ? 'en' : 'fr';
+  const before = game.startTimeUTC ? Date.parse(game.startTimeUTC) : null;
+  const one = async (side) => {
+    const club = clubOf(game, side);
     const tops = stats ? topPerformers(game, stats, club.id, 3).map((t) => t.player) : [];
-    const others = [...game.players.values()].filter((p) => p.teamId === club.id && !tops.includes(p));
-    pool.push(...[...tops, ...others].slice(0, 6).map((p) => ({ p, side })));
-  }
-  if (!pool.length) return null;
-  // Ordre alterné : équipe, adversaire, équipe…
-  pool.sort((x, y) => pool.filter((q) => q.side === x.side).indexOf(x) - pool.filter((q) => q.side === y.side).indexOf(y) || (x.side === 'team' ? -1 : 1));
-  for (let tries = 0; tries < 3; tries++) {
-    const { p, side } = pool[this.factsIndex++ % pool.length];
-    const landing = await withTimeout(this.nhl.playerLanding(p.id), 1500);
-    const { facts } = playerFacts(landing, { gameId: game.id, seen: stats?.players.get(p.id) ?? null });
-    if (facts.length < 2) continue;
-    const color = side === 'team' ? RED : BLUE;
-    // Ce que les médias en disaient avant le match (un titre qui le nomme)
-    let quote = '';
-    const cfg = this.getConfig();
-    if (cfg.ads.press && game.startTimeUTC) {
-      const lang = cfg.stream.languagePriority?.[0] === 'en' ? 'en' : 'fr';
-      const items = await withTimeout(this.nhl.news(pressQuery({ player: p.name, lang }), lang), 1500);
-      const [it] = pressAbout(items, p.last, { before: Date.parse(game.startTimeUTC) });
-      if (it) quote = `<blockquote class="quote">« ${esc(it.title)} »<cite>${esc(it.source ?? 'Presse')} · ${esc(timeAgo(it.published, Date.parse(game.startTimeUTC)))} avant le match</cite></blockquote>`;
+    const pool = [...tops, ...[...game.players.values()].filter((p) => p.teamId === club.id && !tops.includes(p))].slice(0, 8);
+    for (let k = 0; k < Math.min(3, pool.length); k++) {
+      const p = pool[(turn + k) % pool.length];
+      const landing = await withTimeout(this.nhl.playerLanding(p.id), 1500);
+      const { facts } = playerFacts(landing, { gameId: game.id, seen: stats?.players.get(p.id) ?? null });
+      if (facts.length < 2) continue;
+      // Ce que les médias en disaient avant le match (un titre qui le nomme)
+      let quote = '';
+      if (cfg.ads.press && before) {
+        const items = await withTimeout(this.nhl.news(pressQuery({ player: p.name, lang }), lang), 1500);
+        const [it] = pressAbout(items, p.last, { before });
+        if (it) quote = `<blockquote class="quote">« ${esc(it.title)} »<cite>${esc(it.source ?? 'Presse')} · ${esc(timeAgo(it.published, before))} avant le match</cite></blockquote>`;
+      }
+      return vsCard({ player: p, color: sideColor(side), side, title: club.name, sub: `#${p.number ?? ''} · ${p.first}`, body: `<ul class="insights">${facts.slice(0, quote ? 3 : 4).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>${quote}` });
     }
-    return `
-      <div class="feature" style="--feature-accent:${color}">
-        ${phHtml(p, side === 'opp' ? color : null)}
-        <div>
-          <h2>Le saviez-vous ?</h2>
-          <p class="lede"><span class="dot" style="background:${color}"></span>${esc(p.name)} · #${esc(p.number ?? '')} · ${esc(teamLabel(p.teamAbbrev))}</p>
-          <ul class="insights">${facts.slice(0, quote ? 4 : 5).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-          ${quote}
-        </div>
-      </div>`;
-  }
-  return null;
+    return null;
+  };
+  const left = await one('team');
+  const right = sides.includes('opp') ? await one('opp') : null;
+  if (!left && !right) return null;
+  return `<h2>Le saviez-vous ?</h2><p class="lede">Un joueur de chaque équipe, à connaître ce soir.</p>${versus(left ?? emptyCard('team', game), sides.includes('opp') ? (right ?? emptyCard('opp', game)) : null)}`;
 }
 
 // Les meneurs des deux équipes, saison avant ce match + ce qu'ils ont fait ce soir (déjà vu)
@@ -509,23 +508,17 @@ const sidesOf = (show) => (show.getConfig().ads.oppPlayers ? ['team', 'opp'] : [
 const SCENES = [
   { build: sceneCompare },
   { build: sceneGoalStory },
-  { build: sceneStar },
-  { build: function sceneOppStar(d) { return sceneStar.call(this, d, 'opp'); }, when: (a) => a.oppPlayers },
+  { build: function sceneStarsBoth(d) { return sceneStars.call(this, d, sidesOf(this)); } },
   { build: function sceneFactsBoth(d) { return sceneFacts.call(this, d, sidesOf(this)); }, when: (a) => a.facts },
   { build: sceneShotMap },
   { build: sceneLeaders, when: (a) => a.oppPlayers },
   { build: scenePress, when: (a) => a.press },
   { build: sceneMomentum },
-  { build: function sceneSpotlightBoth(d) { return sceneSpotlight.call(this, d, sidesOf(this)); } },
-  { build: sceneGoalies },
+  { build: function sceneDuelBoth(d) { return sceneDuel.call(this, d, sidesOf(this)); } },
+  { build: function sceneGoaliesBoth(d) { return sceneGoalies.call(this, d, sidesOf(this)); } },
   { build: sceneSeries, when: (a) => a.oppPlayers },
   { build: sceneGoals },
 ];
-
-function formatToi(s) {
-  const sec = Math.round(Number(s) || 0);
-  return `${Math.floor(sec / 60)} min ${String(sec % 60).padStart(2, '0')} s`;
-}
 
 function withTimeout(promise, ms) {
   return Promise.race([promise, new Promise((r) => setTimeout(() => r(null), ms))]);

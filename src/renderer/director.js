@@ -5,14 +5,16 @@ import { StreamClock } from '../shared/sync.js';
 import { TensionMeter } from '../shared/tension.js';
 import { matchupColors } from '../shared/theme.js';
 import { AdShow, adShowData } from './adShow.js';
+import { autoCalibrate } from './autoCalibrate.js';
+import { FEED_TYPES } from './overlays.js';
 import { ABSENT_THRESHOLD, PRESENT_THRESHOLD } from './visionPipeline.js';
 
-const CARD_TYPES = new Set(['faceoff', 'shot-on-goal', 'missed-shot', 'blocked-shot', 'hit', 'takeaway', 'giveaway']);
+const PENALTY_ENDS_ON_GOAL = new Set(['MIN', 'BEN']); // une mineure prend fin sur un but en avantage numérique
 
 // La Régie : relie le stream (vision, audio), l'API LNH synchronisée et les surcouches.
 export class Director {
-  constructor({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads, voice }) {
-    Object.assign(this, { getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads, voice });
+  constructor({ getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads }) {
+    Object.assign(this, { getConfig, saveConfig, bridge, streams, nhl, vision, overlays, horn, ui, heads });
     const cfg = getConfig();
     this.clock = new StreamClock({ mode: cfg.sync.mode, manualDelaySec: cfg.sync.manualDelaySec });
     this.scheduler = new EventScheduler();
@@ -41,6 +43,9 @@ export class Director {
     this.audioLevel = null;
     this.videoSince = null;
     this.recentPlays = []; // [{ play, at }] : actions montrées récemment (heure réelle)
+    this.penalties = []; // punitions en cours : { id, player, teamId, start, end, code } (temps de jeu du stream)
+    this.goalLog = []; // journal des buts (diagnostic) : reçu, montré, célébré ou pourquoi pas
+    this.autoCal = { running: false, at: 0, fails: 0, last: null };
 
     nhl.on('game', (g) => this.#onGame(g));
     nhl.on('schedule', () => this.#renderGamePill());
@@ -58,17 +63,13 @@ export class Director {
       this.applyVisionConfig();
     });
     vision.on('metrics', (m) => this.#onMetrics(m));
-    vision.on('clock', ({ t, remaining }) => this.clock.ocrSample(remaining, t));
+    vision.on('clock', ({ t, remaining }) => {
+      this.clock.ocrSample(remaining, t);
+      if (this.autoCal.verify) this.autoCal.verify.reads++;
+    });
     vision.on('score', (s) => this.#onScreenScore(s));
     vision.on('reference', (profile) => this.#saveProfile(profile));
     streams.on('list', () => this.#maybeAutoStart());
-    // Le commentateur nomme le joueur : c'est lui qui a la rondelle (ou presque)
-    voice?.on('names', ({ found }) => {
-      if (this.getConfig().regie.playerSource !== 'voice+api') return;
-      if (Date.now() - (this.lastApiCardAt ?? 0) < 1500) return; // une action LNH vient d'être affichée
-      // Le dernier nommé a la rondelle ; s'il n'est pas affichable (filtre d'équipe), le précédent
-      for (const f of [...found].reverse()) if (this.showPlayer(f.player, { label: 'À la rondelle' })) break;
-    });
 
     this.timer = setInterval(() => this.tick(), 250);
   }
@@ -101,6 +102,10 @@ export class Director {
     const bugRight = bug && bug[0] + bug[2] > 0.62;
     document.body.classList.toggle('bug-bottom', !!bugBottom);
     document.body.classList.toggle('bug-bottom-right', !!(bugBottom && bugRight));
+    // Le fil des actions (en haut à droite) passe sous le logo de la chaîne ou un tableau placé là
+    const topRight = [p?.logo, p?.scorebug].filter((r) => r && r[0] + r[2] > 0.6 && r[1] < 0.3);
+    const below = topRight.length ? Math.max(...topRight.map((r) => r[1] + r[3])) : 0;
+    document.getElementById('overlay')?.style.setProperty('--feed-top', below ? `calc(${(below * 100).toFixed(1)}% + 10px)` : '16px');
   }
 
   activeProfile() {
@@ -119,7 +124,7 @@ export class Director {
   async #saveProfile(profile) {
     const cfg = structuredClone(this.getConfig());
     const i = cfg.vision.profiles.findIndex((p) => p.id === profile.id);
-    if (i >= 0) cfg.vision.profiles[i] = { ...cfg.vision.profiles[i], signature: profile.signature, logoSignature: profile.logoSignature ?? null };
+    if (i >= 0) cfg.vision.profiles[i] = { ...cfg.vision.profiles[i], signature: profile.signature, logoSignature: profile.logoSignature ?? null, signatures: profile.signatures ?? [] };
     await this.saveConfig(cfg, { silent: true });
   }
 
@@ -139,10 +144,8 @@ export class Director {
       document.documentElement.style.setProperty('--c-team', mc.team);
       document.documentElement.style.setProperty('--c-opp', mc.opp);
     }
-    const rosterChanged = isNew || this.game?.players.size !== g.players.size;
     this.game = g;
     if (isNew) this.#prefetchHeads();
-    if (rosterChanged) this.voice?.setRoster([...g.players.values()]);
     this.clock.configure({ gameType: g.gameType });
     this.clock.apiSample(
       { period: g.period, secondsRemaining: g.clock.secondsRemaining, running: g.clock.running, inIntermission: g.clock.inIntermission },
@@ -169,26 +172,38 @@ export class Director {
   #prefetchHeads() {
     const cfg = this.getConfig();
     if (cfg.regie.playerStyle !== 'emoji' || !this.game || !this.heads) return;
-    const players = [...this.game.players.values()].filter((p) => cfg.regie.playerCardFilter === 'all' || p.teamId === this.game.team.id);
+    const players = [...this.game.players.values()].filter((p) => cfg.regie.feedFilter !== 'team' || p.teamId === this.game.team.id);
     this.heads.prefetch(players);
   }
 
-  // Affiche le joueur "à la rondelle" dans le style choisi (carte, nom, tête émoji)
-  showPlayer(player, { play = null, label = null } = {}) {
+  // Style des joueurs dans le fil et la prison : 'photo' | 'name' | 'emoji' ('card' : ancien nom de 'photo')
+  #style() {
+    const st = this.getConfig().regie.playerStyle;
+    return st === 'card' ? 'photo' : st;
+  }
+
+  // Tête émoji déjà prête (sinon on la prépare pour la prochaine fois)
+  #emoji(player, onReady = null) {
+    if (this.#style() !== 'emoji' || !player || !this.heads) return null;
+    const url = this.heads.cachedUrl(player);
+    if (!url) this.heads.get(player).then((u) => u && onReady?.(u)).catch(() => {});
+    return url;
+  }
+
+  // Une ligne dans le fil des actions (tir, mise en jeu, mise en échec…)
+  feedPlay(play) {
     const cfg = this.getConfig();
     const g = this.game;
-    if (!cfg.regie.playerCard || !player || !g) return false;
-    if (this.adState === 'break' || this.overlays.celebration.active) return false;
-    if (cfg.regie.playerCardFilter === 'team' && player.teamId !== g.team.id) return false;
-    const style = cfg.regie.playerStyle;
-    let emojiUrl = null;
-    if (style === 'emoji' && this.heads) {
-      emojiUrl = this.heads.cachedUrl(player);
-      if (!emojiUrl) this.heads.get(player).then((url) => this.overlays.card.updateEmoji(player.id, url)).catch(() => {});
-    }
-    this.overlays.card.show({ player, play, label, stats: this.stats?.players.get(player.id), durationSec: cfg.regie.playerCardSec, style, emojiUrl });
-    this.lastPlayerShownAt = Date.now();
-    return true;
+    if (!cfg.regie.feed || !g || this.adState === 'break' || this.overlays.celebration.active || this.overlays.sad.active) return false;
+    const actor = g.players.get(play.playerId);
+    if (cfg.regie.feedFilter === 'team' && actor && actor.teamId !== g.team.id) return false;
+    const style = this.#style();
+    const ok = this.overlays.feed.push(play, g, {
+      style,
+      durationSec: cfg.regie.feedSec,
+      heads: (pl) => this.#emoji(pl, (url) => this.overlays.feed.updateEmoji(pl.id, url)),
+    });
+    return ok;
   }
 
   #maybeAutoStart() {
@@ -217,6 +232,11 @@ export class Director {
     const rel = holdForOcr ? { history: [], fresh: [], late: [] } : this.scheduler.release(c.gt, { maxLateSec: cfg.sync.maxLateSec });
     if (rel.history.length || rel.fresh.length || rel.late.length) {
       this.stats = computeGameStats(this.game, c.gt ?? Infinity);
+      // App lancée en cours de match : les punitions encore en cours apparaissent (sans animation)
+      for (const p of rel.history) {
+        if (p.type === 'penalty') this.#trackPenalty(p);
+        else if (p.type === 'goal') this.#goalFreesPenalty(p);
+      }
       const lastGoal = [...rel.history].reverse().find((p) => p.type === 'goal');
       if (lastGoal) this.goals.fromPlay(lastGoal, this.game, now);
       else if (rel.history.length && !this.goals.known) this.goals.setScore(0, 0);
@@ -235,6 +255,7 @@ export class Director {
     this.tension.updateContext(this.game, recent, c, this.goals.score.team - this.goals.score.opp);
     this.tension.tick(now);
 
+    this.#renderPenalties(c.gt);
     const inBreak = this.adState === 'break' && cfg.ads.enabled;
     const tensionOn = cfg.regie.tensionFx && !inBreak && !this.overlays.celebration.active;
     this.overlays.tension.set(tensionOn ? this.tension.value : 0, cfg.regie.tensionIntensity);
@@ -250,10 +271,10 @@ export class Director {
         inBreak: inBreak || this.adState === 'show',
       });
       this.#theatre();
+      this.#maybeAutoCalibrate(now);
     }
     if (now - this.lastUi >= 500) {
       this.lastUi = now;
-      this.#updateVoice(cfg, inBreak);
       this.#renderGamePill();
       this.#renderSync();
       this.#renderHud(now);
@@ -265,29 +286,76 @@ export class Director {
     const cfg = this.getConfig();
     if (!g) return;
     if (p.type === 'goal') {
+      this.#goalFreesPenalty(p);
       const r = this.goals.fromPlay(p, g, now);
-      if (!r) return;
+      if (!r) return this.#logGoal(p, 'ignoré : score absent des données');
       this.ad.hintReplay(now + 45_000);
       this.goalBoostUntil = now + 8000;
-      if (r.duplicate || lateBy > 90) return;
+      if (r.duplicate) {
+        // Déjà célébré grâce au score lu à l'écran (stream en avance sur l'API) : on complète avec le marqueur
+        if (r.side === 'team') this.overlays.celebration.updateScorer?.(g.players.get(p.details.scoringPlayerId), p, g);
+        return this.#logGoal(p, 'déjà célébré (score lu à l\'écran)', lateBy);
+      }
+      if (lateBy > 180) return this.#logGoal(p, `trop tard (${Math.round(lateBy)} s après le stream)`, lateBy);
       if (r.side === 'team') this.celebrate(p);
       else this.#opponentGoal(p);
+      this.#logGoal(p, r.side === 'team' ? 'célébré' : 'annoncé (adversaire)', lateBy);
       return;
     }
     if (p.type === 'penalty') {
-      const pl = g.players.get(p.playerId);
-      const ours = (pl?.teamId ?? p.teamId) === g.team.id;
-      this.overlays.banner.show({
-        tag: 'Pénalité',
-        title: `${pl?.name ?? 'Pénalité'}${pl ? ` (${pl.teamAbbrev})` : ''}`,
-        sub: `${penaltyLabel(p.details.descKey)} · ${p.details.duration ?? 2} min${ours ? '' : ` · Avantage numérique ${g.team.abbrev} !`}`,
-        color: teamColor(pl?.teamAbbrev ?? (ours ? g.team.abbrev : g.opp.abbrev)),
-        durationSec: 6,
-      });
+      this.#trackPenalty(p);
+      this.showPenalty(p);
       return;
     }
-    if (!CARD_TYPES.has(p.type) || !p.playerId) return;
-    if (this.showPlayer(g.players.get(p.playerId), { play: p })) this.lastApiCardAt = Date.now();
+    if (FEED_TYPES.has(p.type)) this.feedPlay(p);
+  }
+
+  // Pénalité : le joueur derrière les barreaux (ou un bandeau si l'effet est désactivé)
+  showPenalty(p) {
+    const cfg = this.getConfig();
+    const g = this.game;
+    const pl = g?.players.get(p.playerId);
+    if (cfg.regie.penaltyFx) {
+      if (this.overlays.celebration.active || this.overlays.sad.active) return;
+      this.overlays.jail.jail({ player: pl, play: p, game: g, emojiUrl: this.#emoji(pl) });
+      this.horn.jail({ volume: cfg.audio.hornVolume * 0.7 });
+      return;
+    }
+    const ours = (pl?.teamId ?? p.teamId) === g?.team.id;
+    this.overlays.banner.show({
+      tag: 'Pénalité',
+      title: `${pl?.name ?? 'Pénalité'}${pl ? ` (${pl.teamAbbrev})` : ''}`,
+      sub: `${penaltyLabel(p.details.descKey)} · ${p.details.duration ?? 2} min${ours ? '' : ` · Avantage numérique ${g?.team.abbrev ?? ''} !`}`,
+      color: teamColor(pl?.teamAbbrev ?? (ours ? g?.team.abbrev : g?.opp.abbrev)),
+      durationSec: 6,
+    });
+  }
+
+  // Punitions en cours, sur le temps de jeu du stream (elles traversent l'entracte)
+  #trackPenalty(p) {
+    const d = p.details ?? {};
+    const min = Number(d.duration) || 2;
+    if (['GMIS', 'MAT'].includes(d.typeCode) || min <= 0) return; // expulsion : pas de chrono
+    if (this.penalties.some((x) => x.id === p.id)) return;
+    const player = this.game?.players.get(d.committedByPlayerId ?? d.servedByPlayerId ?? p.playerId) ?? null;
+    this.penalties.push({ id: p.id, player, teamId: player?.teamId ?? p.teamId, start: p.gt, end: p.gt + min * 60, code: d.typeCode ?? (min === 4 ? 'DBL' : min === 2 ? 'MIN' : '') });
+  }
+
+  // But : il libère la mineure de l'équipe en infériorité qui finit le plus tôt (double mineure : la première partie)
+  #goalFreesPenalty(goal) {
+    const shorthanded = this.penalties.filter((x) => x.teamId !== goal.teamId && x.start <= goal.gt && x.end > goal.gt && (PENALTY_ENDS_ON_GOAL.has(x.code) || x.code === 'DBL'));
+    shorthanded.sort((a, b) => a.end - b.end);
+    const x = shorthanded[0];
+    if (!x) return;
+    if (x.code === 'DBL' && goal.gt < x.start + 120) x.end = goal.gt + 120;
+    else x.end = goal.gt;
+  }
+
+  #renderPenalties(gt) {
+    if (gt == null) return;
+    this.penalties = this.penalties.filter((x) => x.end > gt - 5);
+    const live = this.getConfig().regie.penaltyFx && this.adState !== 'break' ? this.penalties.filter((x) => x.start <= gt && x.end > gt).map((x) => ({ id: x.id, player: x.player, remaining: x.end - gt })) : [];
+    this.overlays.jail.render(live, { style: this.#style(), heads: (pl) => this.#emoji(pl) });
   }
 
   celebrate(play = null) {
@@ -299,25 +367,45 @@ export class Director {
       this.overlays.banner.show({ tag: 'But', title: player ? player.name : `But des ${g?.team?.name ?? 'vôtres'} !`, color: teamColor(g?.team?.abbrev) });
       return;
     }
-    this.overlays.card.hide();
-    const emojiUrl = cfg.regie.playerStyle === 'emoji' && player && this.heads ? this.heads.cachedUrl(player) : null;
+    this.overlays.sad.stop();
+    const emojiUrl = this.#emoji(player);
     this.overlays.celebration.start({ player, play, game: g, durationSec: cfg.regie.celebrationSec, confetti: cfg.regie.confetti, emojiUrl, logos: cfg.ui.logos });
-    this.horn.play({ hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume });
+    this.horn.play({ team: g?.team?.abbrev ?? cfg.team, hornVolume: cfg.audio.hornVolume, songVolume: cfg.audio.goalSongVolume });
   }
 
+  // But adverse : version triste (son et image), ou simple bandeau
   #opponentGoal(play) {
     const cfg = this.getConfig();
     const g = this.game;
-    if (!cfg.regie.opponentGoalBanner || !g) return;
-    const scorer = g.players.get(play.details.scoringPlayerId);
+    if (cfg.regie.opponentGoal === 'off' || cfg.regie.opponentGoalBanner === false || !g) return;
+    const scorer = play ? g.players.get(play.details.scoringPlayerId) : null;
+    if (cfg.regie.opponentGoal === 'sad' || cfg.regie.opponentGoal == null) {
+      if (this.overlays.celebration.active) return;
+      this.overlays.sad.start({ player: scorer, play, game: g, score: this.goals.score });
+      this.horn.sad({ volume: cfg.audio.hornVolume });
+      return;
+    }
     this.overlays.banner.show({
       tag: 'But',
-      title: `${scorer?.name ?? g.opp.name}${scorer?.number != null ? ` #${scorer.number}` : ''}`,
+      title: scorer ? `${scorer.name}${scorer.number != null ? ` #${scorer.number}` : ''}` : `But des ${g.opp.name}`,
       sub: `${g.opp.name} · ${g.team.abbrev} ${this.goals.score.team} – ${this.goals.score.opp} ${g.opp.abbrev}`,
       color: teamColor(g.opp.abbrev),
       durationSec: 7,
     });
   }
+
+  // Boutons « Tester » des réglages : but, but adverse, prison
+  test(kind) {
+    const g = this.game;
+    const last = (type, team) => (g ? [...g.plays].reverse().find((p) => p.type === type && (team == null || (p.teamId === g.team.id) === team)) : null);
+    if (kind === 'sad') return this.#opponentGoal(last('goal', false));
+    if (kind === 'penalty') {
+      const p = last('penalty') ?? (g ? { id: 'test', type: 'penalty', gt: this.clockInfo?.gt ?? 0, playerId: [...g.players.values()].find((x) => x.teamId === g.opp.id)?.id, details: { descKey: 'hooking', duration: 2, typeCode: 'MIN' } } : null);
+      return p && this.showPenalty(p);
+    }
+    return this.celebrate(last('goal', true));
+  }
+
 
   // Score lu à l'écran : confirmation croisée avec l'API quand elle connaît le match
   #onScreenScore({ team, opp }) {
@@ -328,19 +416,90 @@ export class Director {
         continue;
       }
       if (e.duplicate) continue;
-      const confirmed = !this.game || this.scheduler.hasPendingGoal(this.game, e.side, e.value);
+      // Confirmé par l'API (but annoncé, pas encore montré)… ou stream en avance sur l'API (télé) :
+      // l'API ne l'a pas encore, le score à l'écran fait foi
+      const confirmed = !this.game || this.scheduler.hasPendingGoal(this.game, e.side, e.value) || this.clock.streamAhead;
       if (!confirmed) continue; // l'API le confirmera (ou c'était une mauvaise lecture)
+      this.#logGoal(null, `score lu à l'écran (${team}-${opp}) : ${e.side === 'team' ? 'célébré' : 'annoncé'}`);
       this.goals.mark(e.side, e.value, now);
       this.ad.hintReplay(now + 45_000);
       if (e.side === 'team') this.celebrate(null);
-      else
-        this.overlays.banner.show({
-          tag: 'But',
-          title: this.game ? `But des ${this.game.opp.name}` : 'But adverse',
-          sub: `Score : ${team} – ${opp}`,
-          color: this.game ? teamColor(this.game.opp.abbrev) : '#5b8def',
-        });
+      else if (this.game) this.#opponentGoal(null);
+      else this.overlays.banner.show({ tag: 'But', title: 'But adverse', sub: `Score : ${team} – ${opp}`, color: '#5b8def' });
     }
+  }
+
+  // Journal des buts, joint au diagnostic : permet de comprendre une célébration manquée
+  #logGoal(play, outcome, lateBy = null) {
+    const g = this.game;
+    const scorer = play ? g?.players.get(play.details?.scoringPlayerId) : null;
+    this.goalLog.push({
+      at: new Date().toISOString(),
+      gt: play?.gt ?? null,
+      equipe: play ? (play.teamId === g?.team?.id ? g?.team?.abbrev : g?.opp?.abbrev) : null,
+      marqueur: scorer?.name ?? null,
+      synchro: this.clockInfo?.source ?? null,
+      retardStream: this.clockInfo?.delaySec != null ? Math.round(this.clockInfo.delaySec) : null,
+      enRetardDe: lateBy != null ? Math.round(lateBy) : null,
+      resultat: outcome,
+    });
+    if (this.goalLog.length > 40) this.goalLog.shift();
+  }
+
+  // Pas de tableau calibré : on le cherche tout seul pendant le jeu (puis toutes les 45 s si échec)
+  async #maybeAutoCalibrate(now) {
+    const cfg = this.getConfig();
+    const a = this.autoCal;
+    // Profil trouvé automatiquement : l'horloge doit ensuite se lire pendant le jeu, sinon on recommence
+    const v = a.verify;
+    const active = this.activeProfile();
+    if (v && active?.id === v.id) {
+      if (v.reads >= 3) a.verify = null;
+      else if ((this.vision.metrics.similarity ?? 0) >= PRESENT_THRESHOLD && ++v.presentSec >= 15) {
+        const next = structuredClone(this.getConfig());
+        next.vision.profiles = next.vision.profiles.filter((p) => p.id !== v.id);
+        next.vision.activeProfile = next.vision.profiles[0]?.id ?? null;
+        a.verify = null;
+        a.fails++;
+        a.last = { ...a.last, error: "horloge trouvée mais illisible pendant le jeu : nouvel essai" };
+        await this.saveConfig(next, { silent: true });
+        this.applyConfig();
+        return;
+      }
+    }
+    if (!cfg.vision.autoCalibrate || a.running || active) return;
+    if (this.videoSince == null || now - this.videoSince < 4000) return;
+    const m = this.vision.metrics;
+    if (!(m.fps > 0.5) || !(m.luma > 20)) return;
+    if (this.game && !isLive(this.game.state)) return;
+    // Échec (horloge arrêtée, ralenti, pub…) : on réessaie vite au début, puis toutes les minutes
+    if (a.fails && now - a.at < (a.fails < 12 ? 8000 : 60_000)) return;
+    a.running = true;
+    a.at = now;
+    let res;
+    try {
+      res = await autoCalibrate({ bridge: this.bridge, ocr: this.vision.ocr });
+    } catch (err) {
+      res = { error: err.message };
+    }
+    a.running = false;
+    a.at = Date.now();
+    a.last = res;
+    if (!res?.clock || this.activeProfile()) {
+      a.fails++;
+      return;
+    }
+    const next = structuredClone(this.getConfig());
+    const id = `auto-${Date.now().toString(36)}`;
+    const name = this.streams.current?.label ? `Auto · ${this.streams.current.label}` : 'Auto';
+    next.vision.profiles.push({ id, name, scorebug: res.scorebug, clock: res.clock, signature: null, logoSignature: null, auto: true });
+    next.vision.activeProfile = id;
+    await this.saveConfig(next, { silent: true });
+    this.applyConfig();
+    this.vision.learnReference();
+    a.fails = 0;
+    a.verify = { id, reads: 0, presentSec: 0 };
+    this.ui.toast(`Tableau de score et horloge trouvés automatiquement (lu : « ${res.reading} »). Touche C pour ajuster.`, { kind: 'ok', ms: 7000 });
   }
 
   // ------------------------------------------------------------- Pubs
@@ -348,7 +507,7 @@ export class Director {
   #onMetrics(m) {
     // Contexte LNH (pause télé, entracte) : seulement quand les données sont synchronisées
     const ctx = this.game && this.clockInfo?.gt != null ? breakContext(this.scheduler.released.slice(-40)) : null;
-    const r = this.ad.update(m.t, { similarity: m.similarity, black: m.black, logo: m.logo, ice: m.ice, context: ctx?.known ? ctx : null });
+    const r = this.ad.update(m.t, { similarity: m.similarity, black: m.black, logo: m.logo, ice: m.ice, look: m.look, context: ctx?.known ? ctx : null });
     if (r.changed) this.#setAdState(r.state);
   }
 
@@ -377,7 +536,7 @@ export class Director {
     if (prev === state) return;
     const cfg = this.getConfig();
     if (state === 'break' && cfg.ads.enabled) {
-      this.overlays.card.hide();
+      this.overlays.feed.clear();
       if (cfg.ads.showStats && !this.showSkipped) this.adShow.start();
     } else if (state !== 'break') {
       // Retour au jeu, ou la chaîne reprend l'antenne (ralenti, analyse, studio) : on lui rend la parole
@@ -407,20 +566,6 @@ export class Director {
   #theatre() {
     const want = this.getConfig().stream.theatreMode && !this.streams.isHome() && !!this.bridge.primary;
     if (want !== this.bridge.desired.theatre) this.bridge.setTheatre(want);
-  }
-
-  #updateVoice(cfg, inBreak) {
-    if (!this.voice) return;
-    const lang = this.streams.current?.lang;
-    const language = cfg.voice.language !== 'auto' ? cfg.voice.language : lang === 'fr' ? 'fr' : 'en';
-    this.voice.update({
-      enabled: cfg.voice.enabled && cfg.regie.playerSource === 'voice+api' && cfg.regie.playerCard,
-      // seulement pendant le jeu : ni pendant les pubs ou les ralentis, ni avant que le stream joue
-      active: !!this.game && this.streams.playedOnce && !inBreak && this.adState !== 'show',
-      model: cfg.voice.model,
-      device: cfg.voice.device,
-      language,
-    });
   }
 
   // ------------------------------------------------------------- Affichage
@@ -454,8 +599,8 @@ export class Director {
   #renderSync() {
     const c = this.clockInfo;
     if (!c || c.gt == null) return this.ui.setSync('Sync —', 'En attente des données');
-    const label = { ocr: 'horloge lue', estimé: 'retard estimé', manuel: 'retard manuel', aucune: '—' }[c.source] ?? c.source;
-    const delay = c.delaySec != null ? ` · ${Math.round(c.delaySec)} s` : '';
+    const label = { ocr: 'horloge lue', figée: 'horloge en pause', estimé: 'retard estimé', manuel: 'retard manuel', aucune: '—' }[c.source] ?? c.source;
+    const delay = c.delaySec != null ? ` · ${c.delaySec < -2 ? `${Math.round(-c.delaySec)} s d'avance` : `${Math.round(c.delaySec)} s`}` : '';
     this.ui.setSync(`Sync ${label}${delay}`, 'Retard du stream sur le direct. +/- pour ajuster en mode manuel.');
   }
 
@@ -472,14 +617,13 @@ export class Director {
         `stream   ${this.streams.health.level} · ${this.streams.health.reason}`,
         `vidéo    ${st ? `${st.vw}x${st.vh} t=${f(st.currentTime, 1)} bloquée=${f(st.stuckSec, 0)}s` : '—'}  (${((now - this.lastStatusAt) / 1000).toFixed(0)}s)`,
         `vision   ${f(m.fps, 1)} img/s · luma ${f(m.luma, 0)} · Δ ${f(m.diff)} · figée ${f(m.frozenSec, 0)}s`,
-        `tableau  similarité ${f(m.similarity)} · logo ${f(m.logo)} · glace ${f(m.ice)} · état ${this.adState}${this.forced != null ? ' (forcé)' : ''} · absent ${f(this.ad.absentForSec(now), 0)}s`,
+        `tableau  similarité ${f(m.similarity)} · logo ${f(m.logo)} · glace ${f(m.ice)} · apparence ${f(m.look)} · état ${this.adState}${this.forced != null ? ' (forcé)' : ''} · absent ${f(this.ad.absentForSec(now), 0)}s`,
         `pub      ${this.ad.reason || '—'}`,
         `ocr      « ${m.clockText ?? ''} »`,
         `sync     gt=${f(c.gt, 1)} ${c.period ?? '-'}e ${formatClock(c.remaining)} · ${c.source ?? '—'} · retard ${f(c.delaySec, 1)}s`,
         `api      ${this.game ? `${this.game.state} ${this.game.period}e ${formatClock(this.game.clock.secondsRemaining)} ${this.game.clock.running ? '▶' : '❚❚'}` : '—'} · en attente ${this.scheduler.pending.length}`,
         `tension  ${f(this.tension.value)} (audio ${f(this.tension.audioExcitement)} · contexte ${f(this.tension.context)}) · son ${f(this.audioLevel, 1)} dB`,
         `gain     ${this.lastDb ?? '—'} dB (${cfg.audio.mode})`,
-        `voix     ${this.voice ? `${this.voice.status.state}${this.voice.status.device ? ` · ${this.voice.status.device}` : ''}${this.voice.status.ms != null ? ` · ${this.voice.status.ms} ms` : ''} · « ${(this.voice.status.lastText ?? '').slice(0, 60)} »` : '—'}`,
       ].join('\n'),
     );
   }

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const outDir = process.argv[2] ?? 'test-output';
-const duration = Number(process.argv[3] ?? 200);
+const duration = Number(process.argv[3] ?? 210);
 fs.mkdirSync(outDir, { recursive: true });
 
 const app = await electron.launch({
@@ -60,7 +60,10 @@ const state = () =>
       audioDb: d.lastDb,
       audioLevel: d.audioLevel,
       celebrating: d.overlays.celebration.active,
-      card: document.querySelector('#player-card.show .pc-last')?.textContent ?? null,
+      card: document.querySelector('#feed .feed-row .feed-name')?.textContent ?? null,
+      jail: document.querySelector('#jail.show .jail-name')?.textContent ?? null,
+      cells: document.querySelector('#jail-cells.show .cell-row b')?.textContent ?? null,
+      sad: !!document.querySelector('#sad-goal.show'),
       banner: document.querySelector('#banner.show .bn-title')?.textContent ?? null,
       adshow: document.querySelector('#adshow.show .scene h2')?.textContent ?? null,
       reason: d.ad.reason,
@@ -101,20 +104,26 @@ const any = (fn) => log.some((l) => l && fn(l));
 const checks = {
   'vidéo détectée': any((l) => l.primary),
   'horloge lue (OCR)': any((l) => l.source === 'ocr'),
-  'carte joueur affichée': any((l) => l.card),
+  "fil des actions affiché": any((l) => l.card),
   "but de l'équipe suivie célébré": any((l) => l.celebrating),
   'pause pub détectée': any((l) => l.adState === 'break'),
   'émission pendant la pub': any((l) => l.adshow),
   'son baissé pendant la pub': any((l) => l.adState === 'break' && l.audioDb < -10),
   // Ralentis de la chaîne (scénario : 26–40 s et 154–165 s) : ni émission, ni son baissé
   'ralenti reconnu (pas une pub)': any((l) => l.adState === 'show'),
+  // Pub sur fond blanc (92–110 s) : toujours une pub, émission comprise
+  'pub sur fond blanc reconnue': log.some((l) => l?.s > 95 && l.s < 108 && l.adState === 'break' && l.adshow),
+  // Avantage numérique (tableau modifié à partir de 178 s) : pas une pub
+  "tableau d'avantage numérique : pas de pub": !log.some((l) => l?.s > 182 && l.s < 208 && l.adState === 'break'),
   "pas d'émission pendant les ralentis": !log.some((l) => l?.s != null && ((l.s > 28 && l.s < 39) || (l.s > 156 && l.s < 164)) && (l.adState === 'break' || l.adshow)),
   'retour au match': log.some((l, i) => l?.adState === 'game' && log.slice(0, i).some((p) => p?.adState === 'break')),
-  'but adverse annoncé': any((l) => /Matthews/.test(l.banner ?? '')),
+  'but adverse (version triste)': any((l) => l.sad),
+  'pénalité : joueur en prison': any((l) => /Rielly/.test(l.jail ?? '')),
+  'chrono de la punition': any((l) => /Rielly/i.test(l.cells ?? '')),
 };
 let ok = true;
 for (const [name, pass] of Object.entries(checks)) {
-  if (duration < 160 && /adverse|retour|pub|émission|son|ralenti/.test(name)) continue;
+  if (duration < 200 && /adverse|retour|pub|émission|son|ralenti|numérique|prison|punition/.test(name)) continue;
   console.log(`${pass ? 'OK ' : 'ÉCHEC'} ${name}`);
   ok &&= pass;
 }

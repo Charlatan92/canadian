@@ -13,7 +13,7 @@
     "start:demo": "electron . --demo",
     "postinstall": "node scripts/vendor.mjs",
     "test": "node --test test/*.test.js",
-    "test:e2e": "node test/e2e-demo.mjs && node test/e2e-ui.mjs && node test/e2e-overlay.mjs && node test/e2e-player.mjs && node test/e2e-errors.mjs && node test/e2e-heads.mjs && node test/e2e-voice.mjs && node test/e2e-fullscreen.mjs && node test/e2e-show.mjs",
+    "test:e2e": "node test/e2e-demo.mjs && node test/e2e-ui.mjs && node test/e2e-overlay.mjs && node test/e2e-player.mjs && node test/e2e-errors.mjs && node test/e2e-heads.mjs && node test/e2e-fullscreen.mjs && node test/e2e-show.mjs",
     "dist:win": "node scripts/vendor.mjs && electron-builder --win nsis portable --publish never",
     "start:overlay-demo": "electron . --demo --overlay"
   },
@@ -25,7 +25,6 @@
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource/barlow-condensed": "^5.3.0",
-    "@huggingface/transformers": "4.3.0",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
     "lucide-static": "^1.49.0",
@@ -69,12 +68,6 @@
     },
     "portable": {
       "artifactName": "Rondelle-Portable-${version}.${ext}"
-    }
-  },
-  "overrides": {
-    "@huggingface/transformers": {
-      "onnxruntime-node": "npm:empty-npm-package@1.0.0",
-      "sharp": "npm:empty-npm-package@1.0.0"
     }
   }
 }

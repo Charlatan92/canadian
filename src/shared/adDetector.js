@@ -6,7 +6,7 @@
 //   'break' : vraie pause publicitaire : son baissé, émission de stats
 // Indices, du plus fiable au moins fiable :
 //   1. le logo de la chaîne (calibré) : présent pendant ses programmes, absent pendant les pubs ;
-//   2. la glace à l'écran : images du match, donc un ralenti ;
+//   2. des images du match à l'écran (apparence apprise pendant le jeu, ou part de glace) : un ralenti ;
 //   3. les données LNH synchronisées : arrêt de jeu « tv-timeout » = pause publicitaire de la télé ;
 //      entracte = émission de la chaîne entrecoupée de pubs ;
 //   4. un écran noir juste avant : transition typique vers les pubs ;
@@ -27,6 +27,7 @@ export class AdDetector {
     this.logoPresentSince = null;
     this.logoAbsentSince = null;
     this.ice = null;
+    this.look = null;
     this.reason = '';
     this.configure(opts);
   }
@@ -50,10 +51,12 @@ export class AdDetector {
     return { state: this.state, changed: prev !== this.state };
   }
 
-  update(t, { similarity = null, black = false, logo = null, ice = null, context = null } = {}) {
+  update(t, { similarity = null, black = false, logo = null, ice = null, look = null, context = null } = {}) {
     const prev = this.state;
     if (black) this.lastBlackT = t;
     if (ice != null) this.ice = this.ice == null ? ice : this.ice * 0.6 + ice * 0.4;
+    // look : ressemblance avec les images du match (0..1), null tant qu'elle n'est pas apprise
+    if (look != null) this.look = this.look == null ? look : this.look * 0.5 + look * 0.5;
     if (logo != null) {
       this.hasLogo = true;
       if (logo >= 0.55) {
@@ -112,21 +115,24 @@ export class AdDetector {
     }
 
     const likelyAd = !!ctx?.tvTimeout || blackTransition;
-    // 2. De la glace à l'écran : ce sont des images du match (ralenti), pas une pub
-    const ice = this.ice ?? 0;
-    if (ice >= (this.state === 'break' ? ICE_OFF_BREAK : ICE_ON) && !(likelyAd && absentMs > 90_000)) {
-      this.reason = 'glace à l\'écran (ralenti)';
+    // 2. Des images du match à l'écran (ralenti) : apparence apprise pendant le jeu si elle est connue
+    //    (foule, bandes, glace : une pub sur fond blanc n'y ressemble pas), sinon la part de glace
+    const look = this.look;
+    const gameLook = look != null ? look >= (this.state === 'break' ? 0.7 : 0.62) : (this.ice ?? 0) >= (this.state === 'break' ? ICE_OFF_BREAK : ICE_ON);
+    if (gameLook && !(likelyAd && absentMs > 90_000)) {
+      this.reason = look != null ? 'images du match (ralenti)' : "glace à l'écran (ralenti)";
       return settled ? 'show' : null;
     }
+    const otherLook = look != null && look < 0.45; // ni le match ni un ralenti : pub ou studio
     // 3. Entracte sans autre indice : c'est l'émission de la chaîne
     if (ctx?.intermission && !likelyAd) {
       this.reason = 'entracte (émission de la chaîne)';
       return settled ? 'show' : null;
     }
-    let need = likelyAd ? this.confirmSec : ctx ? this.longSec : Math.min(this.longSec, 20);
+    let need = likelyAd ? this.confirmSec : otherLook ? this.confirmSec * 2 : ctx ? this.longSec : Math.min(this.longSec, 20);
     if (t < this.replayUntil) need = Math.max(need, 45);
     if (absentMs >= need * 1000) {
-      this.reason = ctx?.tvTimeout ? 'pause télé (données LNH)' : blackTransition ? 'écran noir puis tableau absent' : `tableau absent depuis ${Math.round(absentMs / 1000)} s`;
+      this.reason = ctx?.tvTimeout ? 'pause télé (données LNH)' : blackTransition ? 'écran noir puis tableau absent' : otherLook ? 'tableau absent, images qui ne sont pas du match' : `tableau absent depuis ${Math.round(absentMs / 1000)} s`;
       return 'break';
     }
     if (this.state === 'break') return null; // une pub déjà déclarée le reste jusqu'à preuve du contraire
@@ -183,4 +189,41 @@ export function iceFractionRGBA(d, w, h) {
     }
   }
   return n ? ice / n : null;
+}
+
+// « Apparence » d'une image : pour 3 bandes (haut : foule et bandes ; milieu ; bas : la glace),
+// répartition des pixels en 3 niveaux de luminosité × 3 teintes (neutre, chaude, froide).
+// Apprise pendant le jeu, elle reconnaît les images du match (ralentis compris), alors qu'une pub ou
+// le studio n'y ressemblent pas, même sur fond blanc. d : RGBA w×h ; retourne 27 nombres.
+export function lookFeatures(d, w, h) {
+  if (!d?.length || !w || !h) return null;
+  const bins = new Float32Array(27);
+  for (let y = 0; y < h; y++) {
+    const band = y < h / 3 ? 0 : y < (2 * h) / 3 ? 1 : 2;
+    for (let x = 0, i = y * w * 4; x < w; x++, i += 4) {
+      const r = d[i];
+      const g = d[i + 1];
+      const b = d[i + 2];
+      const mx = Math.max(r, g, b);
+      const sat = mx - Math.min(r, g, b);
+      const l = (r * 77 + g * 150 + b * 29) >> 8;
+      const li = l < 70 ? 0 : l < 160 ? 1 : 2;
+      const hue = sat < 40 ? 0 : r >= b ? 1 : 2;
+      bins[band * 9 + li * 3 + hue]++;
+    }
+  }
+  for (let band = 0; band < 3; band++) {
+    let n = 0;
+    for (let i = 0; i < 9; i++) n += bins[band * 9 + i];
+    for (let i = 0; i < 9; i++) bins[band * 9 + i] = n ? bins[band * 9 + i] / n : 0;
+  }
+  return Array.from(bins, (v) => Math.round(v * 1000) / 1000);
+}
+
+// Ressemblance de deux apparences (0..1) : intersection des histogrammes, moyenne des bandes
+export function lookSimilarity(a, b) {
+  if (!a || !b || a.length !== b.length) return null;
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += Math.min(a[i], b[i]);
+  return s / 3;
 }

@@ -121,9 +121,9 @@ export function demoTime(start, now) {
   return { cycle: Math.floor(T / CYCLE), s: T % CYCLE };
 }
 
-export function buildPbp(start, now) {
+export function buildPbp(start, now, lead = API_LEAD) {
   const { cycle, s } = demoTime(start, now);
-  const apiS = Math.min(CYCLE - 0.001, s + API_LEAD);
+  const apiS = Math.max(0, Math.min(CYCLE - 0.001, s + lead));
   const plays = [];
   let home = 0;
   let away = 0;

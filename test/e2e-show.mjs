@@ -52,13 +52,14 @@ const press = find(/revue de presse/i)?.[1] ?? '';
 const checks = {
   'émission affichée': scenes.size > 0,
   'le but à la loupe (analyse façon commentateur)': /(lancer|rondelle|déviation|revers)/i.test(story) && /\d+ m/.test(story),
-  "joueur du match de l'adversaire": !!find(/^Chez les /),
-  'le saviez-vous ? (anecdotes)': !!find(/saviez-vous/i),
+  'joueurs du match face à face': /Canadiens/.test(find(/joueurs du match/i)?.[1] ?? '') && /Maple Leafs/.test(find(/joueurs du match/i)?.[1] ?? ''),
+  'le saviez-vous ? (un joueur de chaque équipe)': /Canadiens/.test(find(/saviez-vous/i)?.[1] ?? '') && /Maple Leafs/.test(find(/saviez-vous/i)?.[1] ?? ''),
   'duel des meneurs des deux équipes': /Canadiens/.test(find(/meneurs/i)?.[1] ?? '') && /Maple Leafs/.test(find(/meneurs/i)?.[1] ?? ''),
   'revue de presse avant la mise en jeu': /Le Journal fictif/.test(press),
   "aucun article d'après la mise en jeu": !/Spoiler Sports/.test(press),
   'face-à-face de la saison': !!find(/face-à-face/i),
-  'adversaire « à surveiller »': !!find(/^À surveiller/),
+  'face à face des pointeurs (« à surveiller »)': /À surveiller/.test(find(/^Face à face$/i)?.[1] ?? ''),
+  'gardiens face à face': !!find(/devant le filet/i),
   'aucune erreur': errors.length === 0,
 };
 await app.close();

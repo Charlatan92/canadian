@@ -171,6 +171,53 @@ export function autoDetectScorebug(frames, w, h) {
   return [x0 / w, y0 / h, (x1 - x0 + 1) / w, (y1 - y0 + 1) / h];
 }
 
+// --- Détection automatique de l'horloge, dans le tableau de score ---
+// Sur une rafale du tableau (une image toutes les ~0,5 s), les chiffres des secondes changent
+// environ une fois par seconde, alors que le reste du tableau est fixe (noms, score) et qu'une
+// animation change tout le temps. La zone qui change « au rythme d'une horloge » est prolongée vers
+// la gauche (minutes, deux-points) d'après la hauteur des chiffres. Retourne [x, y, w, h] (0..1,
+// relatif au tableau) ou null.
+export function autoDetectClock(frames, w, h) {
+  if (!frames || frames.length < 6) return null;
+  const N = w * h;
+  const pairs = frames.length - 1;
+  const changes = new Uint16Array(N);
+  for (let k = 1; k < frames.length; k++) {
+    const a = frames[k - 1];
+    const b = frames[k];
+    for (let i = 0; i < N; i++) if (Math.abs(a[i] - b[i]) > 45) changes[i]++;
+  }
+  const mask = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    const r = changes[i] / pairs;
+    if (r >= 0.1 && r <= 0.8) mask[i] = 1;
+  }
+  const comps = components(dilate(dilate(mask, w, h), w, h), w, h);
+  let best = null;
+  for (const c of comps) {
+    const ch = c.y1 - c.y0 + 1;
+    const cw = c.x1 - c.x0 + 1;
+    if (ch < h * 0.2 || ch > h * 0.98 || cw > w * 0.6 || c.size < 12) continue;
+    // La plus grande zone ; à taille égale, la plus à droite (les secondes sont à droite de l'horloge)
+    const score = c.size + c.x1 * 0.5;
+    if (!best || score > best.score) best = { ...c, score };
+  }
+  if (!best) return null;
+  const digitH = Math.max(3, best.y1 - best.y0 - 1); // sans la dilatation
+  const x1 = Math.min(w - 1, best.x1 + 1);
+  const x0 = Math.max(0, Math.round(x1 - digitH * 3.6));
+  const y0 = Math.max(0, Math.round(best.y0 - digitH * 0.1));
+  const y1 = Math.min(h - 1, Math.round(best.y1 + digitH * 0.1));
+  return [x0 / w, y0 / h, (x1 - x0 + 1) / w, (y1 - y0 + 1) / h];
+}
+
+// Zone relative au tableau -> zone relative à l'image entière
+export function subRect(outer, inner) {
+  const [ox, oy, ow, oh] = outer;
+  const [ix, iy, iw, ih] = inner;
+  return [ox + ix * ow, oy + iy * oh, iw * ow, ih * oh];
+}
+
 function denseRange(counts, ratio = 0.25) {
   let peak = 0;
   for (let i = 1; i < counts.length; i++) if (counts[i] > counts[peak]) peak = i;

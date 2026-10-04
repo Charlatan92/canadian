@@ -162,6 +162,34 @@ test('sync : changement de période accepté après 3 lectures cohérentes', () 
   assert.equal(c.now(T0 + 61_000).period, 2);
 });
 
+test('sync : horloge lue puis perdue avant de connaître le retard : on reste sur la dernière lecture', () => {
+  const c = new StreamClock({ mode: 'auto', manualDelaySec: 30 });
+  const T0 = 4_000_000;
+  // L'app vient de démarrer : l'API est à 10:00 et tourne ; le stream a 90 s de retard (12:30)
+  c.apiSample({ period: 1, secondsRemaining: 600, running: true }, T0);
+  c.ocrSample(750, T0 + 1000);
+  assert.ok(c.ocrSample(749, T0 + 2000));
+  assert.equal(c.delayEst, null, "retard inconnu : l'historique de l'API ne remonte pas si loin");
+  // Pub : plus de lecture. Surtout pas le retard manuel (30 s), qui montrerait les actions 60 s trop tôt
+  const n = c.now(T0 + 30_000);
+  assert.equal(n.source, 'figée');
+  assert.ok(Math.abs(n.gt - 453) < 0.01, `gt ${n.gt}`);
+});
+
+test('sync : stream en avance sur l\'API (télé)', () => {
+  const c = new StreamClock({ mode: 'auto' });
+  const T0 = 6_000_000;
+  c.apiSample({ period: 2, secondsRemaining: 900, running: true }, T0);
+  // Le stream montre 20 s de plus que l'API (14:40 au lieu de 15:00)
+  c.ocrSample(880, T0 + 1000 - 1000);
+  assert.ok(c.ocrSample(879, T0 + 1000));
+  assert.ok(c.ocrSample(878, T0 + 2000));
+  assert.ok(c.ocrSample(877, T0 + 3000));
+  assert.ok(c.delayEst < -15 && c.delayEst > -25, `retard ${c.delayEst}`);
+  assert.ok(c.streamAhead);
+  assert.equal(c.now(T0 + 3500).source, 'ocr');
+});
+
 test('sync : mode manuel', () => {
   const c = new StreamClock({ mode: 'manual', manualDelaySec: 10 });
   const T0 = 2_000_000;
@@ -603,4 +631,96 @@ test('revue de presse : flux RSS, seulement avant la mise en jeu', () => {
   assert.equal(pressAbout(items, 'Hutson', { before: start })[0]?.source, 'TVA Sports');
   assert.equal(pressAbout(items, 'Suzuki', { before: start }).length, 0);
   assert.equal(seasonSeries({ seasonSeries: [{ id: 1, gameState: 'OFF', awayTeam: { abbrev: 'TOR', score: 2 }, homeTeam: { abbrev: 'MTL', score: 3 } }, { id: 2, gameState: 'LIVE' }] }, 2).length, 1);
+});
+
+// ------------------------------------------------------------------ Klaxons, extraits, horloge
+import { bestExcerpt, hornProfile } from '../src/shared/horns.js';
+import { autoDetectClock } from '../src/shared/vision.js';
+import { TEAMS } from '../src/shared/nhl.js';
+
+test('klaxons : un profil propre à chaque équipe', () => {
+  const keys = Object.keys(TEAMS).map((a) => JSON.stringify(hornProfile(a)));
+  assert.equal(keys.length, 32);
+  assert.ok(new Set(keys).size >= 30, `${new Set(keys).size} profils différents`);
+  assert.notDeepEqual(hornProfile('MTL'), hornProfile('TOR'));
+  assert.ok(hornProfile('CBJ').cannon, 'Columbus : le canon');
+  assert.ok(hornProfile('XXX').notes.length > 0, 'équipe inconnue : klaxon par défaut');
+});
+
+test('chanson de but : l\'extrait de 15 s le plus marquant', () => {
+  const sr = 8000;
+  const s = new Float32Array(sr * 70);
+  for (let i = 0; i < s.length; i++) {
+    const t = i / sr;
+    const loud = t >= 31 && t < 47; // refrain
+    const beat = loud && t % 0.5 < 0.12 ? 1 : 0.35;
+    s[i] = Math.sin(2 * Math.PI * 220 * t) * (loud ? 0.6 * beat : 0.08);
+  }
+  const { start, dur } = bestExcerpt(s, sr, { dur: 15 });
+  assert.equal(dur, 15);
+  assert.ok(start >= 30 && start <= 32.5, `début ${start}`);
+  // Klaxon : on part de la première attaque forte
+  const h = new Float32Array(sr * 6);
+  for (let i = sr * 2; i < h.length; i++) h[i] = Math.sin(i / 10) * 0.8;
+  const hx = bestExcerpt(h, sr, { kind: 'horn', dur: 8 });
+  assert.ok(hx.start >= 1.5 && hx.start <= 2, `klaxon ${hx.start}`);
+});
+
+test('calibration automatique : l\'horloge est la zone qui change chaque seconde', () => {
+  const w = 160;
+  const h = 40;
+  const frames = [];
+  for (let k = 0; k < 12; k++) {
+    const f = new Uint8Array(w * h).fill(30);
+    // Texte fixe (noms, score) à gauche
+    for (let y = 10; y < 30; y++) for (let x = 10; x < 60; x += 6) f[y * w + x] = 220;
+    // Chiffre des secondes : change toutes les 2 images (une image toutes les 0,5 s)
+    const digit = Math.floor(k / 2) % 10;
+    for (let y = 10; y < 30; y++) for (let x = 124; x < 136; x++) if ((x + y + digit * 3) % 4 === 0) f[y * w + x] = 230;
+    frames.push(f);
+  }
+  const r = autoDetectClock(frames, w, h);
+  assert.ok(r, 'horloge trouvée');
+  const right = (r[0] + r[2]) * w;
+  assert.ok(right > 132 && right < 140, `bord droit ${right}`);
+  assert.ok(r[0] * w < 100, 'prolongée vers la gauche (minutes)');
+});
+
+test('pubs : une pub sur fond blanc n\'est pas un ralenti quand l\'apparence du match est connue', () => {
+  // Sans apparence apprise, la glace seule se tromperait (fond blanc = « glace »)
+  const naive = new AdDetector({ confirmSec: 5 });
+  naive.update(0, { similarity: 0.9 });
+  naive.update(2000, { similarity: 0.9 });
+  for (let t = 2500; t <= 30_000; t += 500) naive.update(t, { similarity: 0.1, ice: 0.8, context: { tvTimeout: false } });
+  assert.equal(naive.state, 'show');
+  // Avec l'apparence : images qui ne ressemblent pas au match -> pub en ~10 s
+  const d = new AdDetector({ confirmSec: 5 });
+  d.update(0, { similarity: 0.9, look: 0.9 });
+  d.update(2000, { similarity: 0.9, look: 0.9 });
+  for (let t = 2500; t <= 14_000; t += 500) d.update(t, { similarity: 0.1, ice: 0.8, look: 0.3, context: { tvTimeout: false } });
+  assert.equal(d.state, 'break');
+  // Ralenti : apparence du match
+  const r = new AdDetector({ confirmSec: 5 });
+  r.update(0, { similarity: 0.9, look: 0.9 });
+  r.update(2000, { similarity: 0.9, look: 0.9 });
+  for (let t = 2500; t <= 40_000; t += 500) r.update(t, { similarity: 0.1, ice: 0.3, look: 0.8, context: { tvTimeout: false } });
+  assert.equal(r.state, 'show');
+});
+
+test('apparence des images : le match ressemble au match, pas une pub', async () => {
+  const { lookFeatures, lookSimilarity } = await import('../src/shared/adDetector.js');
+  const W = 32;
+  const H = 18;
+  const frame = (fn) => {
+    const d = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) d.set([...fn(x, y), 255], (y * W + x) * 4);
+    return lookFeatures(d, W, H);
+  };
+  // Match : foule sombre en haut, bandes colorées, glace claire en bas
+  const game = (shift) => frame((x, y) => (y < 6 ? ((x + shift) % 5 ? [50, 50, 60] : [170, 30, 40]) : y < 8 ? [200, 40, 50] : [225, 232, 240]));
+  const whiteAd = frame((x, y) => (y > 8 && y < 11 && x > 4 && x < 28 ? [20, 20, 20] : [250, 250, 250]));
+  const colorAd = frame((x) => [40 + x * 6, 30, 200 - x * 4]);
+  assert.ok(lookSimilarity(game(0), game(2)) > 0.85);
+  assert.ok(lookSimilarity(game(0), whiteAd) < 0.6, `pub blanche ${lookSimilarity(game(0), whiteAd)}`);
+  assert.ok(lookSimilarity(game(0), colorAd) < 0.45);
 });

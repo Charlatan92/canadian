@@ -1,10 +1,10 @@
 import { buildClubStats, buildLanding, buildNews, buildPbp, buildRightRail, buildRoster, buildSchedule } from '/demo/timeline.js';
 
 // Fausse API LNH du mode démo, calée sur le faux stream (même scénario, même horloge).
-export function createDemoApi(start) {
+export function createDemoApi(start, lead = undefined) {
   return async (path) => {
     if (path.includes('/club-schedule/')) return { ok: true, data: buildSchedule(start) };
-    if (path.includes('/play-by-play')) return { ok: true, data: buildPbp(start, Date.now()) };
+    if (path.includes('/play-by-play')) return { ok: true, data: buildPbp(start, Date.now(), lead ?? undefined) };
     const roster = path.match(/\/roster\/([A-Z]{3})\//);
     if (roster) return { ok: true, data: buildRoster(roster[1]) };
     const club = path.match(/\/club-stats\/([A-Z]{3})\//);
