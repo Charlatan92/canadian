@@ -1,5 +1,6 @@
 import { onColor } from '../shared/color.js';
-import { TEAMS, teamLogoUrl } from '../shared/nhl.js';
+import { lang, ordinal, t } from '../shared/i18n.js';
+import { TEAMS, teamLabel, teamLogoUrl } from '../shared/nhl.js';
 import { teamTheme, themeVars } from '../shared/theme.js';
 
 export class Emitter {
@@ -31,6 +32,26 @@ export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Traduit le HTML statique (index.html, overlay.html) : textes et attributs qui sont des phrases
+// du dictionnaire (rien à faire en français, la langue source)
+export function translateDom(root) {
+  if (lang() === 'fr' || !root) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const v = n.nodeValue.trim();
+    if (!v) continue;
+    const tr = t(v);
+    if (tr !== v) n.nodeValue = n.nodeValue.replace(v, tr);
+  }
+  const ATTRS = ['data-tip', 'aria-label', 'title', 'placeholder', 'data-kbd'];
+  for (const el of root.querySelectorAll(ATTRS.map((a) => `[${a}]`).join(','))) {
+    for (const a of ATTRS) {
+      const v = el.getAttribute(a);
+      if (v) el.setAttribute(a, t(v));
+    }
+  }
+}
+
 export function initials(player) {
   return `${player?.first?.[0] ?? ''}${player?.last?.[0] ?? ''}`.toUpperCase() || '?';
 }
@@ -58,8 +79,9 @@ export function installImageFallback() {
   );
 }
 
+// 1er, 2e… (ou 1st, 2nd… en anglais)
 export function ordinalFr(n) {
-  return n === 1 ? '1er' : `${n}e`;
+  return ordinal(n);
 }
 
 // Icône de la planche Lucide embarquée
@@ -81,10 +103,10 @@ export function logoMarkHtml(cls = 'logo-mark') {
 
 // Logo officiel d'une équipe (chargé depuis la LNH via le cache de l'app), repli : pastille
 export function teamLogoHtml(abbrev, { cls = '', logos = true } = {}) {
-  const t = TEAMS[abbrev];
-  const style = t ? `--badge-bg:${t.color};--badge-fg:${onColor(t.color)}` : '';
-  if (!logos || !t) return `<span class="team-logo team-badge ${cls}" style="${style}">${esc(abbrev ?? '?')}</span>`;
-  return `<img class="team-logo ${cls}" src="${teamLogoUrl(abbrev)}" alt="${esc(t.label)}" data-fallback="${esc(abbrev)}" data-fallback-style="${style}">`;
+  const tm = TEAMS[abbrev];
+  const style = tm ? `--badge-bg:${tm.color};--badge-fg:${onColor(tm.color)}` : '';
+  if (!logos || !tm) return `<span class="team-logo team-badge ${cls}" style="${style}">${esc(abbrev ?? '?')}</span>`;
+  return `<img class="team-logo ${cls}" src="${teamLogoUrl(abbrev)}" alt="${esc(teamLabel(abbrev))}" data-fallback="${esc(abbrev)}" data-fallback-style="${style}">`;
 }
 
 // Applique la direction artistique de l'équipe suivie à toute l'interface

@@ -1,4 +1,5 @@
 import { AdDetector, breakContext } from '../shared/adDetector.js';
+import { locale, t } from '../shared/i18n.js';
 import { EventScheduler, GoalTracker } from '../shared/director-core.js';
 import { computeGameStats, formatClock, isLive, penaltyLabel, periodName, teamColor } from '../shared/nhl.js';
 import { StreamClock } from '../shared/sync.js';
@@ -155,9 +156,9 @@ export class Director {
     for (const p of retracted) {
       const side = this.goals.retract(p, g);
       this.overlays.banner.show({
-        tag: 'Annulé',
-        title: `But des ${side === 'team' ? g.team.name : g.opp.name} refusé`,
-        sub: `Score : ${g.team.abbrev} ${this.goals.score.team} – ${this.goals.score.opp} ${g.opp.abbrev}`,
+        tag: t('Annulé'),
+        title: t('But des {team} refusé', { team: side === 'team' ? g.team.name : g.opp.name }),
+        sub: t('Score : {score}', { score: `${g.team.abbrev} ${this.goals.score.team} – ${this.goals.score.opp} ${g.opp.abbrev}` }),
         color: '#555b66',
         durationSec: 7,
       });
@@ -214,7 +215,7 @@ export class Director {
     if (this.autoStartedFor === key) return;
     if (g && !isLive(g.state) && g.state !== 'PRE' && !this.ui.demo) return;
     this.autoStartedFor = key;
-    this.streams.play(0, 'Lancement automatique');
+    this.streams.play(0, t('Lancement automatique'));
   }
 
   // ------------------------------------------------------------- Boucle principale
@@ -323,9 +324,9 @@ export class Director {
     }
     const ours = (pl?.teamId ?? p.teamId) === g?.team.id;
     this.overlays.banner.show({
-      tag: 'Pénalité',
-      title: `${pl?.name ?? 'Pénalité'}${pl ? ` (${pl.teamAbbrev})` : ''}`,
-      sub: `${penaltyLabel(p.details.descKey)} · ${p.details.duration ?? 2} min${ours ? '' : ` · Avantage numérique ${g?.team.abbrev ?? ''} !`}`,
+      tag: t('Pénalité'),
+      title: `${pl?.name ?? t('Pénalité')}${pl ? ` (${pl.teamAbbrev})` : ''}`,
+      sub: `${penaltyLabel(p.details.descKey)} · ${p.details.duration ?? 2} min${ours ? '' : ` · ${t('Avantage numérique {team} !', { team: g?.team.abbrev ?? '' })}`}`,
       color: teamColor(pl?.teamAbbrev ?? (ours ? g?.team.abbrev : g?.opp.abbrev)),
       durationSec: 6,
     });
@@ -364,7 +365,7 @@ export class Director {
     const player = play ? g?.players.get(play.details.scoringPlayerId) : null;
     this.goalBoostUntil = Date.now() + 8000;
     if (!cfg.regie.celebration) {
-      this.overlays.banner.show({ tag: 'But', title: player ? player.name : `But des ${g?.team?.name ?? 'vôtres'} !`, color: teamColor(g?.team?.abbrev) });
+      this.overlays.banner.show({ tag: t('But'), title: player ? player.name : t('But des {team} !', { team: g?.team?.name ?? t('vôtres') }), color: teamColor(g?.team?.abbrev) });
       return;
     }
     this.overlays.sad.stop();
@@ -386,8 +387,8 @@ export class Director {
       return;
     }
     this.overlays.banner.show({
-      tag: 'But',
-      title: scorer ? `${scorer.name}${scorer.number != null ? ` #${scorer.number}` : ''}` : `But des ${g.opp.name}`,
+      tag: t('But'),
+      title: scorer ? `${scorer.name}${scorer.number != null ? ` #${scorer.number}` : ''}` : t('But des {team}', { team: g.opp.name }),
       sub: `${g.opp.name} · ${g.team.abbrev} ${this.goals.score.team} – ${this.goals.score.opp} ${g.opp.abbrev}`,
       color: teamColor(g.opp.abbrev),
       durationSec: 7,
@@ -412,7 +413,7 @@ export class Director {
     const now = Date.now();
     for (const e of this.goals.fromScreen(team, opp, now)) {
       if (e.disallowed) {
-        this.overlays.banner.show({ tag: 'Annulé', title: 'But refusé', sub: 'Le score a été corrigé', color: '#555b66', durationSec: 6 });
+        this.overlays.banner.show({ tag: t('Annulé'), title: t('But refusé'), sub: t('Le score a été corrigé'), color: '#555b66', durationSec: 6 });
         continue;
       }
       if (e.duplicate) continue;
@@ -425,7 +426,7 @@ export class Director {
       this.ad.hintReplay(now + 45_000);
       if (e.side === 'team') this.celebrate(null);
       else if (this.game) this.#opponentGoal(null);
-      else this.overlays.banner.show({ tag: 'But', title: 'But adverse', sub: `Score : ${team} – ${opp}`, color: '#5b8def' });
+      else this.overlays.banner.show({ tag: t('But'), title: t('But adverse'), sub: t('Score : {score}', { score: `${team} – ${opp}` }), color: '#5b8def' });
     }
   }
 
@@ -499,7 +500,7 @@ export class Director {
     this.vision.learnReference();
     a.fails = 0;
     a.verify = { id, reads: 0, presentSec: 0 };
-    this.ui.toast(`Tableau de score et horloge trouvés automatiquement (lu : « ${res.reading} »). Touche C pour ajuster.`, { kind: 'ok', ms: 7000 });
+    this.ui.toast(t('Tableau de score et horloge trouvés automatiquement (lu : « {reading} »). Touche C pour ajuster.', { reading: res.reading }), { kind: 'ok', ms: 7000 });
   }
 
   // ------------------------------------------------------------- Pubs
@@ -515,18 +516,18 @@ export class Director {
   cycleForce() {
     this.forced = this.forced === null ? true : this.forced === true ? false : null;
     const r = this.ad.force(this.forced);
-    if (this.forced === null) this.ui.toast('Détection des pubs : automatique');
-    else this.ui.toast(this.forced ? 'Mode pub forcé' : 'Mode match forcé');
+    if (this.forced === null) this.ui.toast(t('Détection des pubs : automatique'));
+    else this.ui.toast(this.forced ? t('Mode pub forcé') : t('Mode match forcé'));
     this.#setAdState(r.state);
   }
 
   // A : on préfère regarder la pub (ou ce que la chaîne montre) : émission masquée jusqu'à la reprise
   skipShow() {
-    if (this.adState !== 'break') return this.ui.toast("Pas de pause pub en cours : l'émission de stats n'est pas affichée");
+    if (this.adState !== 'break') return this.ui.toast(t("Pas de pause pub en cours : l'émission de stats n'est pas affichée"));
     this.showSkipped = !this.showSkipped;
     if (this.showSkipped) {
       this.adShow.stop();
-      this.ui.toast('Émission masquée jusqu\'à la fin de la pause (A pour la remettre)');
+      this.ui.toast(t("Émission masquée jusqu'à la fin de la pause (A pour la remettre)"));
     } else if (this.getConfig().ads.showStats) this.adShow.start();
   }
 
@@ -576,8 +577,8 @@ export class Director {
     const c = this.clockInfo;
     if (!g) {
       const s = this.nhl.scheduleGame;
-      if (!s) return { kind: this.nhl.lastError ? 'error' : 'none', text: this.nhl.lastError ? 'API LNH indisponible' : 'Aucun match trouvé' };
-      const when = new Date(s.startTimeUTC).toLocaleString('fr-CA', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+      if (!s) return { kind: this.nhl.lastError ? 'error' : 'none', text: this.nhl.lastError ? t('API LNH indisponible') : t('Aucun match trouvé') };
+      const when = new Date(s.startTimeUTC).toLocaleString(locale(), { weekday: 'short', hour: '2-digit', minute: '2-digit' });
       const tv = (s.tvBroadcasts ?? []).map((b) => b.network).join(', ');
       return { kind: 'scheduled', away: s.awayTeam?.abbrev, home: s.homeTeam?.abbrev, when, tv };
     }
@@ -585,10 +586,10 @@ export class Director {
     let when = '';
     const live = isLive(g.state);
     if (!live && g.state !== 'FINAL' && g.state !== 'OFF') {
-      when = new Date(g.startTimeUTC).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' });
+      when = new Date(g.startTimeUTC).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
     } else if (c?.gt != null) {
       when = `${periodName(c.period, g.gameType)} ${formatClock(c.remaining)}`;
-    } else if (g.state === 'FINAL' || g.state === 'OFF') when = 'Final';
+    } else if (g.state === 'FINAL' || g.state === 'OFF') when = t('Final');
     return { kind: 'game', team: g.team.abbrev, opp: g.opp.abbrev, score: { team: s.team, opp: s.opp }, when, live };
   }
 
@@ -598,10 +599,10 @@ export class Director {
 
   #renderSync() {
     const c = this.clockInfo;
-    if (!c || c.gt == null) return this.ui.setSync('Sync —', 'En attente des données');
-    const label = { ocr: 'horloge lue', figée: 'horloge en pause', estimé: 'retard estimé', manuel: 'retard manuel', aucune: '—' }[c.source] ?? c.source;
-    const delay = c.delaySec != null ? ` · ${c.delaySec < -2 ? `${Math.round(-c.delaySec)} s d'avance` : `${Math.round(c.delaySec)} s`}` : '';
-    this.ui.setSync(`Sync ${label}${delay}`, 'Retard du stream sur le direct. +/- pour ajuster en mode manuel.');
+    if (!c || c.gt == null) return this.ui.setSync(t('Sync —'), t('En attente des données'));
+    const label = { ocr: t('horloge lue'), figée: t('horloge en pause'), estimé: t('retard estimé'), manuel: t('retard manuel'), aucune: '—' }[c.source] ?? c.source;
+    const delay = c.delaySec != null ? ` · ${c.delaySec < -2 ? t("{n} s d'avance", { n: Math.round(-c.delaySec) }) : `${Math.round(c.delaySec)} s`}` : '';
+    this.ui.setSync(`${t('Sync')} ${label}${delay}`, t('Retard du stream sur le direct. +/- pour ajuster en mode manuel.'));
   }
 
   #renderHud(now) {

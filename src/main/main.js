@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { APP_NAME, LEGACY_NAMES, RELEASES_API } from '../shared/brand.js';
 import { DEMO_PROFILE } from '../shared/demoProfile.js';
+import { setLanguage, t } from '../shared/i18n.js';
 import { parseRss } from '../shared/insights.js';
 import { hostOf } from '../shared/navPolicy.js';
 import { APP_ORIGIN, handleAppProtocol, registerSchemes } from './appProtocol.js';
@@ -26,6 +27,7 @@ const DEMO_START = Date.now();
 // le stream est en avance, comme la télé), --demo-nocal (aucun tableau calibré)
 const DEMO_LEAD = Number(process.argv.find((a) => a.startsWith('--demo-lead='))?.split('=')[1] ?? NaN);
 const DEMO_NOCAL = process.argv.includes('--demo-nocal');
+const DEMO_LANG = process.argv.find((a) => a.startsWith('--lang='))?.split('=')[1] ?? 'fr';
 
 // Profil isolé (tests automatiques) ; sinon reprise des données de l'ancienne version
 if (process.env.RONDELLE_USER_DATA) app.setPath('userData', process.env.RONDELLE_USER_DATA);
@@ -83,7 +85,7 @@ const config = DEMO
         vision: DEMO_NOCAL ? { profiles: [] } : { profiles: [structuredClone(DEMO_PROFILE)], activeProfile: DEMO_PROFILE.id },
         overlay: { provider: 'rds', duck: 'off' },
         updates: { check: false },
-        ui: { logos: false }, // la démo fonctionne sans réseau : pastilles aux couleurs des équipes
+        ui: { logos: false, language: DEMO_LANG }, // sans réseau : pastilles aux couleurs des équipes
       },
     })
   : new ConfigStore(app.getPath('userData'));
@@ -110,6 +112,7 @@ function broadcastConfig(data) {
 }
 
 function applyPrefs(cfg) {
+  setLanguage(cfg.ui?.language, app.isReady() ? app.getLocale() : process.env.LANG ?? '');
   navPolicy.blockPopups = !!cfg.stream.blockPopups;
   navPolicy.allowedHosts.add(hostOf(cfg.stream.homeUrl));
   for (const h of cfg.stream.allowedSites) if (h) navPolicy.allowedHosts.add(String(h).replace(/^www\./, ''));
@@ -414,7 +417,7 @@ ipcMain.handle('win:fullscreen', (_e, value) => {
 
 ipcMain.handle('dialog:openAudio', async () => {
   const res = await dialog.showOpenDialog(win, {
-    title: 'Choisir un fichier audio',
+    title: t('Choisir un fichier audio'),
     properties: ['openFile'],
     filters: [{ name: 'Audio', extensions: ['mp3', 'ogg', 'wav', 'm4a', 'aac', 'flac', 'webm'] }],
   });
@@ -424,9 +427,9 @@ ipcMain.handle('dialog:openAudio', async () => {
 // Export / import des réglages (fichier JSON) : pour les garder, les copier sur un autre PC ou les partager
 ipcMain.handle('config:export', async () => {
   const res = await dialog.showSaveDialog(win, {
-    title: 'Exporter les réglages',
-    defaultPath: path.join(app.getPath('documents'), `${APP_NAME}-reglages.json`),
-    filters: [{ name: 'Réglages', extensions: ['json'] }],
+    title: t('Exporter les réglages'),
+    defaultPath: path.join(app.getPath('documents'), `${APP_NAME}-${t('reglages')}.json`),
+    filters: [{ name: t('Réglages'), extensions: ['json'] }],
   });
   if (res.canceled || !res.filePath) return null;
   const data = { app: APP_NAME, version: app.getVersion(), exportedAt: new Date().toISOString(), config: config.data };
@@ -435,12 +438,12 @@ ipcMain.handle('config:export', async () => {
 });
 
 ipcMain.handle('config:import', async () => {
-  const res = await dialog.showOpenDialog(win, { title: 'Importer des réglages', properties: ['openFile'], filters: [{ name: 'Réglages', extensions: ['json'] }] });
+  const res = await dialog.showOpenDialog(win, { title: t('Importer des réglages'), properties: ['openFile'], filters: [{ name: t('Réglages'), extensions: ['json'] }] });
   if (res.canceled) return null;
   try {
     const raw = JSON.parse(await fs.readFile(res.filePaths[0], 'utf8'));
     const next = raw?.config ?? raw;
-    if (!next || typeof next !== 'object' || Array.isArray(next) || (!next.team && !next.regie && !next.stream)) return { error: "Ce fichier ne contient pas de réglages de l'application" };
+    if (!next || typeof next !== 'object' || Array.isArray(next) || (!next.team && !next.regie && !next.stream)) return { error: t("Ce fichier ne contient pas de réglages de l'application") };
     // Les sons importés restent sur l'autre PC : on ne garde que ceux qui existent ici
     for (const [team, kinds] of Object.entries(next.audio?.teamSounds ?? {})) {
       for (const [kind, meta] of Object.entries(kinds ?? {})) if (!meta?.file || !fsSync.existsSync(meta.file)) delete kinds[kind];
@@ -449,7 +452,7 @@ ipcMain.handle('config:import', async () => {
     setConfig({ ...next, onboarded: true });
     return { ok: true };
   } catch (err) {
-    return { error: `Fichier illisible : ${err.message}` };
+    return { error: t('Fichier illisible : {err}', { err: err.message }) };
   }
 });
 
@@ -472,14 +475,14 @@ ipcMain.handle('sounds:import', async (_e, team, kind) => {
   const key = soundKey(team, kind);
   if (!key) throw new Error('Son refusé');
   const res = await dialog.showOpenDialog(win, {
-    title: kind === 'horn' ? 'Choisir le klaxon' : 'Choisir la chanson de but',
+    title: kind === 'horn' ? t('Choisir le klaxon') : t('Choisir la chanson de but'),
     properties: ['openFile'],
     filters: [{ name: 'Audio', extensions: AUDIO_EXT }],
   });
   if (res.canceled) return null;
   const src = res.filePaths[0];
   const stat = await fs.stat(src);
-  if (stat.size > MAX_SOUND) return { error: 'Fichier trop gros (25 Mo au plus)' };
+  if (stat.size > MAX_SOUND) return { error: t('Fichier trop gros (25 Mo au plus)') };
   const ext = path.extname(src).slice(1).toLowerCase() || 'mp3';
   return { file: await storeSound(key, await fs.readFile(src), ext), name: path.basename(src) };
 });
@@ -487,17 +490,17 @@ ipcMain.handle('sounds:import', async (_e, team, kind) => {
 // Lien direct vers un fichier audio (pas une page YouTube : la page n'est pas le son)
 ipcMain.handle('sounds:download', async (_e, team, kind, url) => {
   const key = soundKey(team, kind);
-  if (!key || typeof url !== 'string' || !/^https?:\/\//i.test(url)) return { error: 'Lien invalide' };
-  if (/youtube\.com|youtu\.be|spotify\.com|music\.apple\.com/i.test(url)) return { error: 'Ce lien mène à une page, pas à un fichier audio. Téléchargez le son, puis choisissez le fichier.' };
+  if (!key || typeof url !== 'string' || !/^https?:\/\//i.test(url)) return { error: t('Lien invalide') };
+  if (/youtube\.com|youtu\.be|spotify\.com|music\.apple\.com/i.test(url)) return { error: t('Ce lien mène à une page, pas à un fichier audio. Téléchargez le son, puis choisissez le fichier.') };
   try {
     const res = await net.fetch(url, { signal: AbortSignal.timeout(30_000) });
-    if (!res.ok) return { error: `Le serveur répond ${res.status}` };
+    if (!res.ok) return { error: t('Le serveur répond {status}', { status: res.status }) };
     const type = res.headers.get('content-type') ?? '';
     const fromUrl = path.extname(new URL(url).pathname).slice(1).toLowerCase();
     const ext = AUDIO_EXT.includes(fromUrl) ? fromUrl : { 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/flac': 'flac', 'audio/webm': 'webm' }[type.split(';')[0]];
-    if (!ext || /text\/html/.test(type)) return { error: "Ce lien ne mène pas à un fichier audio (mp3, ogg, wav…)" };
+    if (!ext || /text\/html/.test(type)) return { error: t('Ce lien ne mène pas à un fichier audio (mp3, ogg, wav…)') };
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX_SOUND) return { error: 'Fichier trop gros (25 Mo au plus)' };
+    if (buf.length > MAX_SOUND) return { error: t('Fichier trop gros (25 Mo au plus)') };
     return { file: await storeSound(key, buf, ext), name: decodeURIComponent(path.basename(new URL(url).pathname)) || url };
   } catch (err) {
     return { error: err.message };

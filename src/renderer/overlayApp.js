@@ -1,3 +1,4 @@
+import { setLanguage, t } from '../shared/i18n.js';
 import { ScreenBridge, ScreenStreams } from './capture/screenBridge.js';
 import { createRegie } from './core/regie.js';
 import { overlayRefs } from './overlays.js';
@@ -12,6 +13,7 @@ const info = await window.rondelle.info();
 const demo = info.demo;
 let cfg = await window.rondelle.getConfig();
 const getConfig = () => cfg;
+setLanguage(cfg.ui.language, navigator.language);
 applyTeamTheme(cfg.team);
 
 // Les clics traversent cette fenêtre : les notifications s'affichent dans le panneau principal
@@ -55,6 +57,7 @@ for (const name of ['sad', 'jail']) {
 window.rondelle.on('config-changed', (next) => {
   const prev = cfg;
   cfg = next;
+  if (prev.ui.language !== cfg.ui.language) return location.reload();
   if (prev.team !== cfg.team) {
     applyTeamTheme(cfg.team);
     nhl.restart();
@@ -112,21 +115,21 @@ streams.on('health', (h) => {
   else showChip('Rondelle · surcouche active', 'ok');
 });
 
-bridge.on('ended', () => toast("La capture de l'écran s'est arrêtée.", { kind: 'bad', ms: 10_000 }));
+bridge.on('ended', () => toast(t("La capture de l'écran s'est arrêtée."), { kind: 'bad', ms: 10_000 }));
 
 let learnedDemoReference = false;
 async function startCapture() {
   try {
     const r = await bridge.start();
     Object.assign(status, { capturing: true, width: r.width, height: r.height, audio: r.audio });
-    if (!r.audio && info.platform === 'win32') toast("Le son de l'ordinateur n'est pas capturé : la voix du commentateur et l'analyse de la foule sont désactivées.", { kind: 'warn', ms: 9000 });
+    if (!r.audio && info.platform === 'win32') toast(t("Le son de l'ordinateur n'est pas capturé : l'analyse de la foule est désactivée."), { kind: 'warn', ms: 9000 });
     if (demo && !learnedDemoReference) {
       learnedDemoReference = true;
       setTimeout(() => vision.learnReference(), 2500);
     }
   } catch (err) {
     status.capturing = false;
-    toast(`Impossible de capturer l'écran : ${err.message}`, { kind: 'bad', ms: 12_000 });
+    toast(t("Impossible de capturer l'écran : {err}", { err: err.message }), { kind: 'bad', ms: 12_000 });
     setTimeout(startCapture, 10_000);
   }
 }
@@ -148,7 +151,7 @@ document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
 director.applyConfig();
 horn.loadTeam(cfg.team, cfg.audio.teamSounds);
 nhl.start();
-showChip('Rondelle · démarrage de la surcouche…', 'warn', 0);
+showChip(t('Rondelle · démarrage de la surcouche…'), 'warn', 0);
 startCapture();
 
 window.__rondelle = { director, streams, bridge, vision, nhl, getConfig };

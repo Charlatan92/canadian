@@ -1,4 +1,5 @@
 import { APP_NAME } from '../shared/brand.js';
+import { lang, setLanguage, t } from '../shared/i18n.js';
 import { teamColor, teamLabel, teamName } from '../shared/nhl.js';
 import { providerOf } from '../shared/providers.js';
 import { AgentBridge } from './agentBridge.js';
@@ -16,7 +17,7 @@ import { StreamManager } from './streamManager.js';
 import { RosterPanel } from './ui/roster.js';
 import { installTooltips } from './ui/tooltip.js';
 import { Welcome } from './ui/welcome.js';
-import { $, applyTeamTheme, esc, icon, installImageFallback, logoMarkHtml, teamLogoHtml } from './util.js';
+import { $, applyTeamTheme, esc, icon, installImageFallback, logoMarkHtml, teamLogoHtml, translateDom } from './util.js';
 
 installImageFallback();
 installTooltips();
@@ -25,11 +26,15 @@ const info = await window.rondelle.info();
 const demo = info.demo;
 let cfg = await window.rondelle.getConfig();
 const getConfig = () => cfg;
+// Langue de l'interface : choisie avant tout affichage ; le HTML statique est traduit sur place
+setLanguage(cfg.ui.language, navigator.language);
+document.documentElement.lang = lang();
+translateDom(document.body);
 // 'web' : le stream s'ouvre dans l'app | 'overlay' : la vidéo est dans le navigateur, cette
 // fenêtre devient le panneau de contrôle de la surcouche
 const MODE = cfg.source === 'overlay' ? 'overlay' : 'web';
 document.body.classList.add(`mode-${MODE}`);
-document.title = demo ? `${APP_NAME} — démo` : APP_NAME;
+document.title = demo ? `${APP_NAME} — ${t('démo')}` : APP_NAME;
 applyTeamTheme(cfg.team);
 $('.logo-mark').outerHTML = logoMarkHtml();
 
@@ -40,23 +45,23 @@ const toast = (text, opts) => toasts.show(text, opts);
 
 function renderTeamChip() {
   $('#team-chip').innerHTML = `${teamLogoHtml(cfg.team, { logos: cfg.ui.logos })}<span class="team-chip-name">${esc(teamName(cfg.team))}</span>`;
-  $('#team-chip').dataset.tip = `${teamLabel(cfg.team)} : cliquez pour changer d'équipe`;
+  $('#team-chip').dataset.tip = t("{team} : cliquez pour changer d'équipe", { team: teamLabel(cfg.team) });
 }
 
 function gameHtml(v) {
   // Logo officiel, ou pastille de couleur (l'abréviation est déjà écrite à côté)
   const logo = (a) => (cfg.ui.logos ? teamLogoHtml(a) : `<span class="team-dot" style="background:${teamColor(a)}"></span>`);
-  if (!v || v.kind === 'none' || v.kind === 'error') return `<span class="muted">${esc(v?.text ?? 'Recherche du match…')}</span>`;
+  if (!v || v.kind === 'none' || v.kind === 'error') return `<span class="muted">${esc(v?.text ?? t('Recherche du match…'))}</span>`;
   if (v.kind === 'scheduled') {
     return `<span class="gp-team">${logo(v.away)}${esc(v.away)}</span><span class="muted">@</span><span class="gp-team">${esc(v.home)}${logo(v.home)}</span>
       <span class="gp-when">${esc(v.when)}${v.tv ? ` · ${esc(v.tv)}` : ''}</span>`;
   }
-  return `${v.live ? '<span class="gp-live" aria-label="En direct"></span>' : ''}<span class="gp-team">${logo(v.team)}${esc(v.team)}</span>
+  return `${v.live ? `<span class="gp-live" aria-label="${t('En direct')}"></span>` : ''}<span class="gp-team">${logo(v.team)}${esc(v.team)}</span>
     <span class="gp-score">${v.score.team} – ${v.score.opp}</span><span class="gp-team">${esc(v.opp)}${logo(v.opp)}</span>
     ${v.when ? `<span class="gp-when">${esc(v.when)}</span>` : ''}`;
 }
 
-const MODE_LABELS = { game: 'En jeu', show: 'Ralenti · analyse', break: 'Pause pub', unknown: 'Pub : ?' };
+const MODE_LABELS = { game: t('En jeu'), show: t('Ralenti · analyse'), break: t('Pause pub'), unknown: t('Pub : ?') };
 let lastGameKey = '';
 const ui = {
   demo,
@@ -100,7 +105,7 @@ let bridge = null;
 let webview = $('#stream');
 
 function onConfigChanged(prev, silent) {
-  if (prev.source !== cfg.source) {
+  if (prev.source !== cfg.source || prev.ui.language !== cfg.ui.language) {
     // Changement de mode : la fenêtre se reconstruit (la surcouche est lancée ou arrêtée par le process principal)
     location.reload();
     return;
@@ -113,7 +118,7 @@ function onConfigChanged(prev, silent) {
   if (prev.team !== cfg.team && regie) {
     regie.nhl.restart();
     streams.refresh();
-    toast(`Équipe suivie : ${teamLabel(cfg.team)}`, { kind: 'ok' });
+    toast(t('Équipe suivie : {team}', { team: teamLabel(cfg.team) }), { kind: 'ok' });
   }
   regie?.director.applyConfig();
   document.body.classList.toggle('overlays-hidden', cfg.ui.hideOverlays);
@@ -179,12 +184,12 @@ const welcome = new Welcome($('#welcome'), { getConfig, saveConfig, displays: ()
 const remoteBridge = {
   async snapshot(maxWidth) {
     const r = await window.rondelle.overlayRequest('snapshot', { maxWidth });
-    if (!r || r.error) throw new Error(r?.error ?? 'pas de réponse');
+    if (!r || r.error) throw new Error(r?.error ?? t('pas de réponse'));
     return r;
   },
   async burst(opts) {
     const r = await window.rondelle.overlayRequest('burst', opts);
-    if (!r || r.error) throw new Error(r?.error ?? 'pas de réponse');
+    if (!r || r.error) throw new Error(r?.error ?? t('pas de réponse'));
     return r;
   },
 };
@@ -227,7 +232,7 @@ async function copyDiagnostics() {
       ? await diagnostics.collect()
       : { quand: new Date().toISOString(), mode: MODE, app: await window.rondelle.diagnostics(), surcouche: overlayStatus, reglages: { equipe: cfg.team, surcouche: cfg.overlay } };
     await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-    toast('Diagnostic copié : collez-le dans votre message pour qu\'on regarde ce qui bloque.', { kind: 'ok', ms: 6000 });
+    toast(t('Diagnostic copié : collez-le dans votre message pour qu\'on regarde ce qui bloque.'), { kind: 'ok', ms: 6000 });
   } catch (err) {
     toast(`Impossible de copier le diagnostic : ${err.message}`, { kind: 'bad' });
   }
@@ -237,16 +242,16 @@ async function checkUpdates(manual = false) {
   const r = await window.rondelle.checkUpdates();
   if (!manual) await saveConfig({ ...cfg, updates: { ...cfg.updates, lastCheck: Date.now() } }, { silent: true });
   if (!r?.ok) {
-    if (manual) toast(`Vérification impossible : ${r?.error ?? 'réseau'}`, { kind: 'warn' });
+    if (manual) toast(t('Vérification impossible : {err}', { err: r?.error ?? t('réseau') }), { kind: 'warn' });
     return;
   }
   if (r.newer) {
-    toast(`${APP_NAME} ${r.latest} est disponible (vous avez la ${r.current}).`, {
+    toast(t('{app} {latest} est disponible (vous avez la {current}).', { app: APP_NAME, latest: r.latest, current: r.current }), {
       kind: 'ok',
       ms: 20_000,
-      actions: [{ label: 'Télécharger', fn: () => window.rondelle.openExternal(r.url) }],
+      actions: [{ label: t('Télécharger'), fn: () => window.rondelle.openExternal(r.url) }],
     });
-  } else if (manual) toast(`Vous avez la dernière version (${r.current}).`, { kind: 'ok' });
+  } else if (manual) toast(t('Vous avez la dernière version ({v}).', { v: r.current }), { kind: 'ok' });
 }
 
 // ------------------------------------------------------------------ Raccourcis
@@ -275,7 +280,7 @@ async function setImmersive(on, { fromPlayer = false } = {}) {
 
 function toggleTheatre() {
   saveConfig({ ...cfg, stream: { ...cfg.stream, theatreMode: !cfg.stream.theatreMode } });
-  toast(cfg.stream.theatreMode ? 'Mode théâtre désactivé' : 'Mode théâtre activé');
+  toast(cfg.stream.theatreMode ? t('Mode théâtre désactivé') : t('Mode théâtre activé'));
 }
 
 function handleKey(key) {
@@ -321,7 +326,7 @@ function handleKey(key) {
       break;
     case 'h':
       saveConfig({ ...cfg, ui: { ...cfg.ui, hideOverlays: !cfg.ui.hideOverlays } });
-      toast(cfg.ui.hideOverlays ? 'Graphiques affichés' : 'Graphiques masqués (H pour les remettre)');
+      toast(cfg.ui.hideOverlays ? t('Graphiques affichés') : t('Graphiques masqués (H pour les remettre)'));
       break;
     case 'd':
       saveConfig({ ...cfg, ui: { ...cfg.ui, debugHud: !cfg.ui.debugHud } });
@@ -332,7 +337,7 @@ function handleKey(key) {
       const d = Math.max(0, cfg.sync.manualDelaySec + (key === '-' ? -5 : 5));
       saveConfig({ ...cfg, sync: { ...cfg.sync, manualDelaySec: d } });
       const ocr = MODE === 'web' ? regie?.director.clockInfo?.source === 'ocr' : overlayStatus?.syncSource === 'ocr';
-      toast(cfg.sync.mode === 'auto' && ocr ? `Retard manuel : ${d} s (non utilisé tant que l'horloge est lue à l'écran)` : `Retard du stream : ${d} s`);
+      toast(cfg.sync.mode === 'auto' && ocr ? t("Retard manuel : {d} s (non utilisé tant que l'horloge est lue à l'écran)", { d }) : t('Retard du stream : {d} s', { d }));
       break;
     }
     default:
@@ -408,29 +413,29 @@ function renderControl() {
   const p = providerOf(cfg.overlay.provider);
   const capturing = !!st?.capturing;
   $('#ov-dot').className = `status-dot ${capturing ? (st.health?.level === 'ok' ? 'ok' : 'warn') : 'warn pulse'}`;
-  $('#ov-label').textContent = capturing ? `Surcouche active · ${p.name}` : 'Surcouche en démarrage…';
+  $('#ov-label').textContent = capturing ? t('Surcouche active · {name}', { name: p.name }) : t('Surcouche en démarrage…');
   const key = `${cfg.team}|${cfg.overlay.provider}|${cfg.ui.hideOverlays}|${cfg.ui.logos}`;
   if (el.dataset.key !== key) {
     el.dataset.key = key;
     const card = (f, k, ic) => `<div class="stat-card"><div class="k">${icon(ic, 'ic-sm')}${esc(k)}</div><div class="v" data-f="${f}">—</div><div class="s" data-f="${f}-s"></div></div>`;
     el.innerHTML = `<div class="control-inner">
-        <div class="control-hero">${teamLogoHtml(cfg.team, { logos: cfg.ui.logos })}<div><h1>Surcouche ${esc(p.name)}</h1><p data-f="hero"></p></div></div>
+        <div class="control-hero">${teamLogoHtml(cfg.team, { logos: cfg.ui.logos })}<div><h1>${t('Surcouche {name}', { name: esc(p.name) })}</h1><p data-f="hero"></p></div></div>
         <div class="control-grid">
-          ${card('game', 'Match', 'trophy')}${card('mode', 'Ce que la régie voit', 'eye')}${card('image', 'Image', 'monitor')}
-          ${card('sync', 'Synchro', 'timer')}${card('duck', 'Son baissé pendant les pubs', 'volume-2')}
+          ${card('game', t('Match'), 'trophy')}${card('mode', t('Ce que la régie voit'), 'eye')}${card('image', t('Image'), 'monitor')}
+          ${card('sync', t('Synchro'), 'timer')}${card('duck', t('Son baissé pendant les pubs'), 'volume-2')}
         </div>
         <div class="control-actions">
-          ${p.url ? `<button class="btn btn-primary" data-ctl="open-provider">${icon('external-link', 'ic-sm')}Ouvrir ${esc(p.name)}</button>` : ''}
-          <button class="btn" data-ctl="calibrate">${icon('scan', 'ic-sm')}Calibrer le tableau</button>
-          <button class="btn" data-ctl="test-goal">${icon('party-popper', 'ic-sm')}Tester la célébration</button>
-          <button class="btn" data-ctl="toggle-hidden">${icon(cfg.ui.hideOverlays ? 'eye' : 'eye-off', 'ic-sm')}${cfg.ui.hideOverlays ? 'Afficher' : 'Masquer'} les graphiques</button>
-          <button class="btn" data-ctl="settings">${icon('settings', 'ic-sm')}Réglages</button>
-          <button class="btn btn-ghost" data-ctl="stop">${icon('power', 'ic-sm')}Revenir au lecteur intégré</button>
+          ${p.url ? `<button class="btn btn-primary" data-ctl="open-provider">${icon('external-link', 'ic-sm')}${t('Ouvrir {name}', { name: esc(p.name) })}</button>` : ''}
+          <button class="btn" data-ctl="calibrate">${icon('scan', 'ic-sm')}${t('Calibrer le tableau')}</button>
+          <button class="btn" data-ctl="test-goal">${icon('party-popper', 'ic-sm')}${t('Tester la célébration')}</button>
+          <button class="btn" data-ctl="toggle-hidden">${icon(cfg.ui.hideOverlays ? 'eye' : 'eye-off', 'ic-sm')}${cfg.ui.hideOverlays ? t('Afficher les graphiques') : t('Masquer les graphiques')}</button>
+          <button class="btn" data-ctl="settings">${icon('settings', 'ic-sm')}${t('Réglages')}</button>
+          <button class="btn btn-ghost" data-ctl="stop">${icon('power', 'ic-sm')}${t('Revenir au lecteur intégré')}</button>
         </div>
         <div class="card" style="padding:20px 24px"><ol class="steps">
-          <li>Ouvrez le match sur <b>${esc(p.url ? p.name : 'l’appli de votre fournisseur')}</b> et connectez-vous avec votre abonnement télé.</li>
-          <li>Mettez la vidéo <b>en plein écran</b> sur l'écran choisi (Réglages › Surcouche TV).</li>
-          <li>Calibrez une fois le tableau de score du diffuseur, pendant le jeu. Vous pouvez réduire cette fenêtre : <kbd>Ctrl+Alt+R</kbd> la ramène, <kbd>Ctrl+Alt+H</kbd> masque les graphiques.</li>
+          <li>${t('Ouvrez le match sur <b>{name}</b> et connectez-vous avec votre abonnement télé.', { name: esc(p.url ? p.name : t("l'appli de votre fournisseur")) })}</li>
+          <li>${t("Mettez la vidéo <b>en plein écran</b> sur l'écran choisi (Réglages › Surcouche TV).")}</li>
+          <li>${t('Le tableau de score du diffuseur est trouvé automatiquement pendant le jeu (ou calibrez-le une fois). Vous pouvez réduire cette fenêtre : <kbd>Ctrl+Alt+R</kbd> la ramène, <kbd>Ctrl+Alt+H</kbd> masque les graphiques.')}</li>
         </ol></div>
       </div>`;
   }
@@ -439,15 +444,15 @@ function renderControl() {
     if (n && n.textContent !== text) n.textContent = text;
   };
   const g = st?.game;
-  set('hero', capturing ? (st.health?.reason ?? 'Capture en cours') : "Démarrage de la capture de l'écran…");
+  set('hero', capturing ? (st.health?.reason ?? t('Capture en cours')) : t("Démarrage de la capture de l'écran…"));
   set('game', g?.kind === 'game' ? `${g.team} ${g.score.team} – ${g.score.opp} ${g.opp}` : (g?.text ?? (g?.kind === 'scheduled' ? `${g.away} @ ${g.home}` : '—')));
   set('game-s', g?.when ?? '');
   set('mode', MODE_LABELS[st?.mode] ?? '—');
-  set('mode-s', st?.profile ? `Tableau : ${st.profile}` : 'Tableau non calibré');
+  set('mode-s', st?.profile ? t('Tableau : {name}', { name: st.profile }) : t('Tableau non calibré'));
   set('image', capturing ? `${st.width}×${st.height}` : '—');
-  set('image-s', capturing ? `${(st.fps ?? 0).toFixed(1)} analyse(s) / s${st.audio ? ' · son capté' : ' · sans le son'}` : '');
+  set('image-s', capturing ? `${t('{n} analyse(s) / s', { n: (st.fps ?? 0).toFixed(1) })}${st.audio ? t(' · son capté') : t(' · sans le son')}` : '');
   set('sync', st?.sync?.text ?? '—');
-  set('duck', cfg.overlay.duck === 'off' ? 'Désactivée' : info.duckSupported ? (cfg.overlay.duck === 'all' ? 'Tout le PC' : 'Navigateurs') : 'Windows seulement');
+  set('duck', cfg.overlay.duck === 'off' ? t('Désactivée') : info.duckSupported ? (cfg.overlay.duck === 'all' ? t('Tout le PC') : t('Navigateurs')) : t('Windows seulement'));
 }
 
 $('#control').addEventListener('click', (e) => {
@@ -486,11 +491,11 @@ function startIntegratedPlayer() {
   function renderStreamList() {
     const sel = $('#stream-select');
     if (!streams.streams.length) {
-      sel.innerHTML = '<option>Aucun stream trouvé pour le match</option>';
+      sel.innerHTML = `<option>${t('Aucun stream trouvé pour le match')}</option>`;
       return;
     }
     sel.innerHTML =
-      `<option value="-1" ${streams.index < 0 ? 'selected' : ''}>${streams.streams.length} stream(s) trouvé(s) — choisir…</option>` +
+      `<option value="-1" ${streams.index < 0 ? 'selected' : ''}>${t('{n} stream(s) trouvé(s) — choisir…', { n: streams.streams.length })}</option>` +
       streams.streams.map((s, i) => `<option value="${i}" ${i === streams.index ? 'selected' : ''}>${esc(streams.label(s))}</option>`).join('');
   }
 
@@ -510,7 +515,7 @@ function startIntegratedPlayer() {
   $('#btn-home').addEventListener('click', () => streams.goHome());
   $('#btn-refresh-streams').addEventListener('click', async () => {
     const list = await streams.refresh();
-    toast(list.length ? `${list.length} stream(s) trouvé(s)` : `Aucun stream trouvé pour le match des ${teamName(cfg.team)} : cliquez un lien sur la page`, { kind: list.length ? 'ok' : 'warn' });
+    toast(list.length ? t('{n} stream(s) trouvé(s)', { n: list.length }) : t('Aucun stream trouvé pour le match des {team} : cliquez un lien sur la page', { team: teamName(cfg.team) }), { kind: list.length ? 'ok' : 'warn' });
   });
   $('#btn-theatre').addEventListener('click', toggleTheatre);
   $('#mode-pill').addEventListener('click', () => director.cycleForce());
@@ -558,18 +563,18 @@ function startIntegratedPlayer() {
       /* adresse brute */
     }
     // Après un vrai clic, ça peut être un lien légitime ouvert en pop-up : on propose de l'ouvrir
-    toast(`Pop-up bloquée (${host})`, {
+    toast(t('Pop-up bloquée ({host})', { host }), {
       ms: activated ? 7000 : 2500,
-      actions: activated ? [{ label: 'Ouvrir ici', fn: () => webview.loadURL(url, { httpReferrer: webview.getURL() }) }] : [],
+      actions: activated ? [{ label: t('Ouvrir ici'), fn: () => webview.loadURL(url, { httpReferrer: webview.getURL() }) }] : [],
     });
   });
   window.rondelle.on('nav-blocked', ({ url, host }) => {
-    toast(`Redirection bloquée vers ${host}`, {
+    toast(t('Redirection bloquée vers {host}', { host }), {
       kind: 'warn',
       ms: 8000,
       actions: [
         {
-          label: 'Autoriser ce site',
+          label: t('Autoriser ce site'),
           fn: async () => {
             await window.rondelle.allowNavigation({ hosts: [host] });
             await addToList('allowedSites', host);
@@ -592,21 +597,21 @@ function startIntegratedPlayer() {
   streams.on('player-error', async (e) => {
     const why = e.media ? `${e.explanation} : ${e.media.label}` : e.explanation;
     if (e.step === 'reload') {
-      toast(`Le lecteur affiche une erreur (${why}). Nouvel essai…`, { kind: 'warn', ms: 5000 });
+      toast(t('Le lecteur affiche une erreur ({why}). Nouvel essai…', { why }), { kind: 'warn', ms: 5000 });
     } else if (e.step === 'adblock-off') {
       adblockTrial = e.host;
       await window.rondelle.adblockTemporary(e.host, true);
-      toast(`Nouvel essai sans bloqueur de pubs sur ${e.host}…`, { kind: 'warn', ms: 5000 });
+      toast(t('Nouvel essai sans bloqueur de pubs sur {host}…', { host: e.host }), { kind: 'warn', ms: 5000 });
       streams.reload();
     } else if (e.step === 'suggest') {
-      toast(`Ce stream ne se lit pas : ${why}.`, {
+      toast(t('Ce stream ne se lit pas : {why}.', { why }), {
         kind: 'bad',
         ms: 30_000,
         actions: [
-          { label: 'Stream suivant', fn: () => streams.next() },
-          { label: 'Recharger', fn: () => streams.reload() },
-          { label: 'Ouvrir dans mon navigateur', fn: () => window.rondelle.openExternal(webview.getURL()) },
-          { label: 'Copier le diagnostic', fn: () => copyDiagnostics() },
+          { label: t('Stream suivant'), fn: () => streams.next() },
+          { label: t('Recharger'), fn: () => streams.reload() },
+          { label: t('Ouvrir dans mon navigateur'), fn: () => window.rondelle.openExternal(webview.getURL()) },
+          { label: t('Copier le diagnostic'), fn: () => copyDiagnostics() },
         ],
       });
     }
@@ -616,7 +621,7 @@ function startIntegratedPlayer() {
     if (adblockTrial && adblockTrial === pageHost()) {
       const host = adblockTrial;
       await addToList('adblockExceptions', host);
-      toast(`Le bloqueur de pubs empêchait ce lecteur de démarrer : il reste coupé sur ${host}.`, { ms: 8000 });
+      toast(t('Le bloqueur de pubs empêchait ce lecteur de démarrer : il reste coupé sur {host}.', { host }), { ms: 8000 });
     }
     await endAdblockTrial();
   });
@@ -628,18 +633,18 @@ function startIntegratedPlayer() {
     const host = pageHost();
     if (supported || drmWarned.has(host)) return;
     drmWarned.add(host);
-    toast("Cette vidéo est protégée (DRM) : elle ne peut pas être lue dans l'app. Ouvrez-la dans votre navigateur et passez en mode surcouche : Rondelle se posera par-dessus.", {
+    toast(t("Cette vidéo est protégée (DRM) : elle ne peut pas être lue dans l'app. Ouvrez-la dans votre navigateur et passez en mode surcouche : Rondelle se posera par-dessus."), {
       kind: 'warn',
       ms: 30_000,
       actions: [
         {
-          label: 'Passer en surcouche',
+          label: t('Passer en surcouche'),
           fn: async () => {
             await window.rondelle.openExternal(webview.getURL() || url);
             await saveConfig({ ...cfg, source: 'overlay' });
           },
         },
-        { label: 'Ouvrir dans mon navigateur', fn: () => window.rondelle.openExternal(webview.getURL() || url) },
+        { label: t('Ouvrir dans mon navigateur'), fn: () => window.rondelle.openExternal(webview.getURL() || url) },
       ],
     });
   });
@@ -648,32 +653,32 @@ function startIntegratedPlayer() {
   streams.on('stuck', ({ hasVideo }) => {
     const host = pageHost();
     const actions = [];
-    if (hasVideo) actions.push({ label: '▶ Lecture', fn: () => bridge.play() });
+    if (hasVideo) actions.push({ label: t('▶ Lecture'), fn: () => bridge.play() });
     if (cfg.stream.adblock && host && !cfg.stream.adblockExceptions.includes(host)) {
       actions.push({
-        label: 'Réessayer sans bloqueur',
+        label: t('Réessayer sans bloqueur'),
         fn: async () => {
           await addToList('adblockExceptions', host);
           webview.reload();
         },
       });
     }
-    actions.push({ label: 'Stream suivant', fn: () => streams.next() });
-    actions.push({ label: 'Ouvrir dans mon navigateur', fn: () => window.rondelle.openExternal(webview.getURL()) });
-    actions.push({ label: 'Copier le diagnostic', fn: () => copyDiagnostics() });
+    actions.push({ label: t('Stream suivant'), fn: () => streams.next() });
+    actions.push({ label: t('Ouvrir dans mon navigateur'), fn: () => window.rondelle.openExternal(webview.getURL()) });
+    actions.push({ label: t('Copier le diagnostic'), fn: () => copyDiagnostics() });
     const media = streams.recentMediaFailure();
-    const text = hasVideo ? 'La vidéo est en pause : cliquez sur ▶ dans le lecteur.' : 'Le lecteur ne démarre pas ?';
-    toast(media ? `${text} Cause probable : ${media.label}.` : text, { kind: 'warn', ms: 30_000, actions });
+    const text = hasVideo ? t('La vidéo est en pause : cliquez sur ▶ dans le lecteur.') : t('Le lecteur ne démarre pas ?');
+    toast(media ? `${text} ${t('Cause probable : {why}.', { why: media.label })}` : text, { kind: 'warn', ms: 30_000, actions });
   });
 
   bridge.on('audio-silent', () => {
     if (cfg.audio.mode !== 'webaudio') return;
-    toast('Le son de ce stream semble bloqué par le mode audio avancé.', {
+    toast(t('Le son de ce stream semble bloqué par le mode audio avancé.'), {
       kind: 'warn',
       ms: 15_000,
       actions: [
         {
-          label: 'Passer en mode compatible',
+          label: t('Passer en mode compatible'),
           fn: async () => {
             await saveConfig({ ...cfg, audio: { ...cfg.audio, mode: 'element' } });
             webview.reload();
@@ -687,7 +692,7 @@ function startIntegratedPlayer() {
   nhl.on('error', (err) => {
     if (nhlErrorShown) return;
     nhlErrorShown = true;
-    toast(`API LNH injoignable (${err.message}). La régie fonctionne en mode stream seul.`, { kind: 'warn', ms: 8000 });
+    toast(t('API LNH injoignable ({err}). La régie fonctionne en mode stream seul.', { err: err.message }), { kind: 'warn', ms: 8000 });
   });
 
   // --- Démarrage
@@ -705,7 +710,7 @@ function startIntegratedPlayer() {
   nhl.start();
   if (demo) {
     streams.refresh();
-    toast('Mode démo : faux stream et fausse API. Touche D : moniteur technique.', { ms: 8000 });
+    toast(t('Mode démo : faux stream et fausse API. Touche D : moniteur technique.'), { ms: 8000 });
   } else {
     webview.src = cfg.stream.homeUrl;
     if (!cfg.vision.profiles.length && cfg.onboarded) {

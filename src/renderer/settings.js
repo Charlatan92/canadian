@@ -3,40 +3,41 @@ import { DEFAULT_CONFIG, SETTINGS_ITEMS, SETTINGS_SECTIONS, getPath, setPath } f
 import { bestExcerpt, hornProfile, soundSearchUrl } from '../shared/horns.js';
 import { TEAMS, formatClock, teamLabel } from '../shared/nhl.js';
 import { PROVIDERS, providerOf } from '../shared/providers.js';
+import { N_, lang, t } from '../shared/i18n.js';
 import { teamGridHtml } from './ui/teamPicker.js';
 import { esc, icon, logoMarkHtml, teamLogoHtml } from './util.js';
 
 export const KEYS = [
-  ['F', 'Plein écran + mode théâtre'],
-  ['T', 'Mode théâtre'],
-  ['N / P', 'Stream suivant / précédent'],
-  ['M', 'Pub : auto → forcée → match forcé'],
-  ['A', 'Masquer l\'émission de stats jusqu\'à la fin de la pause'],
-  ['+ / −', 'Retard du stream (mode manuel)'],
-  ['C', 'Calibrer le tableau de score'],
-  ['G', 'Tester la célébration'],
-  ['B', 'Relancer la lecture'],
-  ['H', 'Masquer / afficher les graphiques'],
-  ['D', 'Moniteur technique'],
-  ['S', 'Réglages'],
-  ['Échap', 'Quitter le plein écran / fermer'],
+  ['F', N_('Plein écran + mode théâtre')],
+  ['T', N_('Mode théâtre')],
+  ['N / P', N_('Stream suivant / précédent')],
+  ['M', N_('Pub : auto → forcée → match forcé')],
+  ['A', N_('Masquer l\'émission de stats jusqu\'à la fin de la pause')],
+  ['+ / −', N_('Retard du stream (mode manuel)')],
+  ['C', N_('Calibrer le tableau de score')],
+  ['G', N_('Tester la célébration')],
+  ['B', N_('Relancer la lecture')],
+  ['H', N_('Masquer / afficher les graphiques')],
+  ['D', N_('Moniteur technique')],
+  ['S', N_('Réglages')],
+  [N_('Échap'), N_('Quitter le plein écran / fermer')],
 ];
 
 // Mode surcouche : la fenêtre de Rondelle n'a pas le focus, ces raccourcis marchent partout
 export const GLOBAL_KEYS = [
-  ['Ctrl+Alt+H', 'Masquer / afficher les graphiques'],
-  ['Ctrl+Alt+M', 'Pub : auto → forcée → match forcé'],
-  ['Ctrl+Alt+A', 'Masquer l\'émission de stats jusqu\'à la fin de la pause'],
-  ['Ctrl+Alt+G', 'Tester la célébration'],
-  ['Ctrl+Alt+R', 'Afficher le panneau Rondelle'],
+  ['Ctrl+Alt+H', N_('Masquer / afficher les graphiques')],
+  ['Ctrl+Alt+M', N_('Pub : auto → forcée → match forcé')],
+  ['Ctrl+Alt+A', N_('Masquer l\'émission de stats jusqu\'à la fin de la pause')],
+  ['Ctrl+Alt+G', N_('Tester la célébration')],
+  ['Ctrl+Alt+R', N_('Afficher le panneau Rondelle')],
 ];
 
 const LICENSES = [
   ['Electron', 'MIT'],
   ['Ghostery Adblocker', 'MPL-2.0'],
-  ['Tesseract.js (OCR)', 'Apache-2.0'],
-  ['Inter, Barlow Condensed (polices)', 'SIL OFL 1.1'],
-  ['Lucide (icônes)', 'ISC'],
+  [N_('Tesseract.js (OCR)'), 'Apache-2.0'],
+  [N_('Inter, Barlow Condensed (polices)'), 'SIL OFL 1.1'],
+  [N_('Lucide (icônes)'), 'ISC'],
 ];
 
 // Panneau Réglages : rubriques à gauche, réglages à droite, explication de chaque réglage dans
@@ -80,15 +81,15 @@ export class SettingsPanel {
     this.el.innerHTML = `
       <section class="dialog dlg-settings" role="dialog" aria-modal="true" aria-labelledby="set-title" tabindex="-1">
         <nav class="set-nav" role="tablist" aria-orientation="vertical">
-          <h2 id="set-title">${logoMarkHtml()}Réglages</h2>
+          <h2 id="set-title">${logoMarkHtml()}${t('Réglages')}</h2>
           ${SETTINGS_SECTIONS.map(
             (s) => `${s.id === 'rosters' ? '<div class="set-nav-sep"></div>' : ''}
-              <button class="set-tab" role="tab" data-sec="${s.id}" aria-selected="${s.id === this.section}">${icon(s.icon)}<span>${esc(s.title)}</span></button>`,
+              <button class="set-tab" role="tab" data-sec="${s.id}" aria-selected="${s.id === this.section}">${icon(s.icon)}<span>${esc(t(s.title))}</span></button>`,
           ).join('')}
         </nav>
         <div class="set-main">
           <header class="set-head"><div><h3></h3><p></p></div>
-            <button class="icon-btn" data-act="close" aria-label="Fermer" data-tip="Fermer" data-kbd="Échap">${icon('x')}</button>
+            <button class="icon-btn" data-act="close" aria-label="${t('Fermer')}" data-tip="${t('Fermer')}" data-kbd="${t('Échap')}">${icon('x')}</button>
           </header>
           <div class="set-body" role="tabpanel"></div>
         </div>
@@ -102,17 +103,17 @@ export class SettingsPanel {
     const cfg = this.getConfig();
     const sec = SETTINGS_SECTIONS.find((s) => s.id === this.section) ?? SETTINGS_SECTIONS[0];
     for (const t of this.el.querySelectorAll('.set-tab')) t.setAttribute('aria-selected', String(t.dataset.sec === sec.id));
-    this.el.querySelector('.set-head h3').textContent = sec.title;
+    this.el.querySelector('.set-head h3').textContent = t(sec.title);
     const intro = this.el.querySelector('.set-head p');
-    intro.textContent = sec.intro ?? '';
+    intro.textContent = sec.intro ? t(sec.intro) : '';
     intro.hidden = !sec.intro;
     const body = this.el.querySelector('.set-body');
     const scroll = body.scrollTop;
     body.innerHTML = sec.groups
       .map(
-        (g) => `<section class="set-group">${g.title ? `<h4>${esc(g.title)}</h4>` : ''}
+        (g) => `<section class="set-group">${g.title ? `<h4>${esc(t(g.title))}</h4>` : ''}
           <div class="card">${g.items.map((it) => this.#row(it, cfg)).join('')}
-          ${g.actions?.length ? `<div class="set-actions">${g.actions.map((a) => `<button class="btn btn-sm" data-act="${a.act}">${a.icon ? icon(a.icon, 'ic-sm') : ''}${esc(a.label)}</button>`).join('')}</div>` : ''}
+          ${g.actions?.length ? `<div class="set-actions">${g.actions.map((a) => `<button class="btn btn-sm" data-act="${a.act}">${a.icon ? icon(a.icon, 'ic-sm') : ''}${esc(t(a.label))}</button>`).join('')}</div>` : ''}
           </div></section>`,
       )
       .join('');
@@ -127,11 +128,11 @@ export class SettingsPanel {
     const value = getPath(cfg, it.path);
     const id = `f-${it.path.replace(/\./g, '-')}`;
     const disabled = it.when && !it.when(cfg);
-    const info = it.help ? `<button class="info-btn" type="button" data-tip="${esc(it.help)}" aria-label="En savoir plus">${icon('info')}</button>` : '';
-    const label = `<div class="set-label"><span class="lbl"><label for="${id}">${esc(it.label)}</label>${info}</span>${it.desc ? `<div class="desc">${esc(it.desc)}</div>` : ''}</div>`;
+    const info = it.help ? `<button class="info-btn" type="button" data-tip="${esc(t(it.help))}" aria-label="${t('En savoir plus')}">${icon('info')}</button>` : '';
+    const label = `<div class="set-label"><span class="lbl"><label for="${id}">${esc(t(it.label))}</label>${info}</span>${it.desc ? `<div class="desc">${esc(t(it.desc))}</div>` : ''}</div>`;
     if (it.type === 'team') {
       return `<div class="set-row">${label}<div class="set-control"><span class="team-chip" style="pointer-events:none">${teamLogoHtml(value, { logos: cfg.ui.logos })}<span>${esc(teamLabel(value))}</span></span>
-        <button class="btn btn-sm" data-act="team-toggle" aria-expanded="${this.teamOpen}">${this.teamOpen ? 'Fermer' : 'Changer'}</button></div></div>
+        <button class="btn btn-sm" data-act="team-toggle" aria-expanded="${this.teamOpen}">${this.teamOpen ? t('Fermer') : t('Changer')}</button></div></div>
         ${this.teamOpen ? `<div class="set-row" style="display:block">${teamGridHtml(value, { logos: cfg.ui.logos })}</div>` : ''}`;
     }
     return `<div class="set-row${disabled ? ' disabled' : ''}">${label}<div class="set-control">${this.#control(it, value, id)}</div></div>`;
@@ -140,10 +141,10 @@ export class SettingsPanel {
   #options(it) {
     if (it.options === 'providers') return PROVIDERS.map((p) => ({ value: p.id, label: p.name }));
     if (it.options === 'displays') {
-      const list = this.displays.length ? this.displays : [{ id: null, label: 'Écran principal' }];
-      return [{ value: null, label: 'Écran principal' }, ...list.filter((d) => d.id != null).map((d) => ({ value: String(d.id), label: d.label }))];
+      const list = this.displays.length ? this.displays : [{ id: null, label: t('Écran principal') }];
+      return [{ value: null, label: t('Écran principal') }, ...list.filter((d) => d.id != null).map((d) => ({ value: String(d.id), label: d.label }))];
     }
-    return it.options ?? [];
+    return (it.options ?? []).map((o) => ({ ...o, label: t(o.label) }));
   }
 
   #control(it, value, id) {
@@ -167,11 +168,11 @@ export class SettingsPanel {
           <output for="${id}">${esc(it.format ? it.format(Number(value)) : value)}</output></div>`;
       }
       case 'number':
-        return `<span class="input-unit"><input class="input" type="number" id="${id}" data-path="${path}" value="${esc(value)}" min="${it.min ?? ''}" max="${it.max ?? ''}" step="${it.step ?? 1}">${it.unit ? `<span>${esc(it.unit)}</span>` : ''}</span>`;
+        return `<span class="input-unit"><input class="input" type="number" id="${id}" data-path="${path}" value="${esc(value)}" min="${it.min ?? ''}" max="${it.max ?? ''}" step="${it.step ?? 1}">${it.unit ? `<span>${esc(t(it.unit))}</span>` : ''}</span>`;
       case 'file':
-        return `<span class="file-pick"><span class="name" title="${esc(value)}">${esc(value ? value.split(/[\\/]/).pop() : it.placeholder ?? 'Aucun')}</span>
-          <button class="btn btn-sm" data-act="pick-file" data-path="${path}">Choisir…</button>
-          ${value ? `<button class="icon-btn icon-btn-sm" data-act="clear-file" data-path="${path}" aria-label="Retirer" data-tip="Revenir au son par défaut">${icon('x', 'ic-sm')}</button>` : ''}</span>`;
+        return `<span class="file-pick"><span class="name" title="${esc(value)}">${esc(value ? value.split(/[\\/]/).pop() : t(it.placeholder ?? 'Aucun'))}</span>
+          <button class="btn btn-sm" data-act="pick-file" data-path="${path}">${t('Choisir…')}</button>
+          ${value ? `<button class="icon-btn icon-btn-sm" data-act="clear-file" data-path="${path}" aria-label="${t('Retirer')}" data-tip="${t('Revenir au son par défaut')}">${icon('x', 'ic-sm')}</button>` : ''}</span>`;
       default:
         return `<input class="input" type="text" id="${id}" data-path="${path}" value="${esc(value)}" spellcheck="false">`;
     }
@@ -188,105 +189,105 @@ export class SettingsPanel {
     'team-sounds'(cfg) {
       const team = this.soundTeam ?? cfg.team;
       const sounds = cfg.audio.teamSounds?.[team] ?? {};
-      const KIND_NAMES = { ship: 'corne de navire', train: 'accord de locomotive', air: 'klaxon de camion', fog: 'corne de brume', arena: "grosse corne d'aréna", siren: 'sirène' };
+      const KIND_NAMES = { ship: t('corne de navire'), train: t('accord de locomotive'), air: t('klaxon de camion'), fog: t('corne de brume'), arena: t("grosse corne d'aréna"), siren: t('sirène') };
       const prof = hornProfile(team);
       const row = (kind) => {
         const s = sounds[kind];
-        const title = kind === 'horn' ? 'Klaxon' : 'Chanson de but';
+        const title = kind === 'horn' ? t('Klaxon') : t('Chanson de but');
         const status = s
-          ? `« ${esc(s.name ?? 'fichier importé')} » · ${kind === 'song' ? `extrait ${formatClock(s.start)} – ${formatClock(s.start + s.dur)}` : `à partir de ${formatClock(s.start)}`}`
+          ? `« ${esc(s.name ?? t('fichier importé'))} » · ${kind === 'song' ? t('extrait {a} – {b}', { a: formatClock(s.start), b: formatClock(s.start + s.dur) }) : t('à partir de {a}', { a: formatClock(s.start) })}`
           : kind === 'horn'
-            ? `Synthétisé, propre aux ${esc(TEAMS[team]?.name ?? team)} (${KIND_NAMES[prof.kind]}${prof.cannon ? ' et coup de canon' : ''})`
-            : 'Aucune : importez la chanson de votre équipe, Rondelle en garde les 15 secondes les plus connues';
+            ? esc(t('Synthétisé, propre aux {team} ({kind})', { team: TEAMS[team]?.name ?? team, kind: `${KIND_NAMES[prof.kind]}${prof.cannon ? t(' et coup de canon') : ''}` }))
+            : t('Aucune : importez la chanson de votre équipe, Rondelle en garde les 15 secondes les plus connues');
         return `<div class="snd-row">
           <div class="snd-ic">${icon(kind === 'horn' ? 'megaphone' : 'music')}</div>
           <div class="snd-info"><b>${title}</b><span>${status}</span></div>
           <div class="snd-actions">
-            ${s || kind === 'horn' ? `<button class="btn btn-sm" data-act="snd-play" data-kind="${kind}">${icon('play', 'ic-sm')}Écouter</button>` : ''}
-            <button class="btn btn-sm" data-act="snd-file" data-kind="${kind}">${icon('upload', 'ic-sm')}Fichier…</button>
-            <button class="btn btn-sm" data-act="snd-link" data-kind="${kind}" aria-expanded="${this.soundLink === kind}">${icon('link', 'ic-sm')}Lien…</button>
-            <button class="btn btn-sm btn-ghost" data-act="snd-search" data-kind="${kind}" data-tip="Ouvre une recherche dans votre navigateur pour trouver le son">${icon('search', 'ic-sm')}Chercher</button>
-            ${s ? `<button class="icon-btn icon-btn-sm" data-act="snd-del" data-kind="${kind}" aria-label="Retirer" data-tip="Retirer (retour au son par défaut)">${icon('trash-2', 'ic-sm')}</button>` : ''}
+            ${s || kind === 'horn' ? `<button class="btn btn-sm" data-act="snd-play" data-kind="${kind}">${icon('play', 'ic-sm')}${t('Écouter')}</button>` : ''}
+            <button class="btn btn-sm" data-act="snd-file" data-kind="${kind}">${icon('upload', 'ic-sm')}${t('Fichier…')}</button>
+            <button class="btn btn-sm" data-act="snd-link" data-kind="${kind}" aria-expanded="${this.soundLink === kind}">${icon('link', 'ic-sm')}${t('Lien…')}</button>
+            <button class="btn btn-sm btn-ghost" data-act="snd-search" data-kind="${kind}" data-tip="${t('Ouvre une recherche dans votre navigateur pour trouver le son')}">${icon('search', 'ic-sm')}${t('Chercher')}</button>
+            ${s ? `<button class="icon-btn icon-btn-sm" data-act="snd-del" data-kind="${kind}" aria-label="${t('Retirer')}" data-tip="${t('Retirer (retour au son par défaut)')}">${icon('trash-2', 'ic-sm')}</button>` : ''}
           </div>
-          ${s && kind === 'song' ? `<div class="snd-trim"><label>Début de l'extrait <span class="input-unit"><input class="input" type="number" min="0" step="1" value="${Math.round(s.start)}" data-snd-start="${kind}"><span>s</span></span></label>
-            <button class="btn btn-sm btn-ghost" data-act="snd-auto" data-kind="${kind}">${icon('wand-sparkles', 'ic-sm')}Choisir automatiquement</button></div>` : ''}
-          ${this.soundLink === kind ? `<div class="snd-link"><input class="input" id="snd-url" type="url" placeholder="Lien direct vers un fichier audio (…/klaxon.mp3)" spellcheck="false">
-            <button class="btn btn-sm btn-primary" data-act="snd-download" data-kind="${kind}">${icon('download', 'ic-sm')}Télécharger</button></div>` : ''}
+          ${s && kind === 'song' ? `<div class="snd-trim"><label>${t("Début de l'extrait")} <span class="input-unit"><input class="input" type="number" min="0" step="1" value="${Math.round(s.start)}" data-snd-start="${kind}"><span>s</span></span></label>
+            <button class="btn btn-sm btn-ghost" data-act="snd-auto" data-kind="${kind}">${icon('wand-sparkles', 'ic-sm')}${t('Choisir automatiquement')}</button></div>` : ''}
+          ${this.soundLink === kind ? `<div class="snd-link"><input class="input" id="snd-url" type="url" placeholder="${t('Lien direct vers un fichier audio (…/klaxon.mp3)')}" spellcheck="false">
+            <button class="btn btn-sm btn-primary" data-act="snd-download" data-kind="${kind}">${icon('download', 'ic-sm')}${t('Télécharger')}</button></div>` : ''}
         </div>`;
       };
       return `<div class="set-row" style="display:block">
-        <div class="snd-head"><span class="lbl">Sons de l'équipe
-          <button class="info-btn" type="button" data-tip="Chaque équipe a son klaxon synthétisé. Importez le vrai klaxon et la chanson de but de votre équipe (fichier ou lien direct vers un mp3) : Rondelle les copie dans son dossier et garde l'extrait le plus connu. « Chercher » ouvre une recherche dans votre navigateur." aria-label="En savoir plus">${icon('info')}</button></span>
+        <div class="snd-head"><span class="lbl">${t("Sons de l'équipe")}
+          <button class="info-btn" type="button" data-tip="${esc(t("Chaque équipe a son klaxon synthétisé. Importez le vrai klaxon et la chanson de but de votre équipe (fichier ou lien direct vers un mp3) : Rondelle les copie dans son dossier et garde l'extrait le plus connu. « Chercher » ouvre une recherche dans votre navigateur."))}" aria-label="${t('En savoir plus')}">${icon('info')}</button></span>
           <select class="select" id="snd-team">${Object.keys(TEAMS)
-            .sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), 'fr'))
+            .sort((a, b) => teamLabel(a).localeCompare(teamLabel(b), lang()))
             .map((a) => `<option value="${a}" ${a === team ? 'selected' : ''}>${esc(teamLabel(a))}${cfg.audio.teamSounds?.[a] ? ' ♪' : ''}</option>`)
             .join('')}</select></div>
         ${row('horn')}${row('song')}</div>`;
     },
     'adblock-exceptions'(cfg) {
       const list = cfg.stream.adblockExceptions;
-      return `<div class="set-row" style="display:block"><div class="set-label"><span class="lbl">Sites sans bloqueur de pubs
-          <button class="info-btn" type="button" data-tip="Lecteurs qui refusaient de démarrer avec le bloqueur : il reste coupé sur ces sites seulement." aria-label="En savoir plus">${icon('info')}</button></span></div>
-        ${list.length ? `<ul class="list" style="margin-top:8px">${list.map((h, i) => `<li><span class="grow">${esc(h)}</span><button class="btn btn-sm btn-ghost" data-act="adx-del" data-i="${i}">Réactiver</button></li>`).join('')}</ul>` : '<div class="desc" style="margin-top:4px;color:var(--text-3)">Aucun : le bloqueur est actif partout.</div>'}</div>`;
+      return `<div class="set-row" style="display:block"><div class="set-label"><span class="lbl">${t('Sites sans bloqueur de pubs')}
+          <button class="info-btn" type="button" data-tip="${t('Lecteurs qui refusaient de démarrer avec le bloqueur : il reste coupé sur ces sites seulement.')}" aria-label="${t('En savoir plus')}">${icon('info')}</button></span></div>
+        ${list.length ? `<ul class="list" style="margin-top:8px">${list.map((h, i) => `<li><span class="grow">${esc(h)}</span><button class="btn btn-sm btn-ghost" data-act="adx-del" data-i="${i}">${t('Réactiver')}</button></li>`).join('')}</ul>` : `<div class="desc" style="margin-top:4px;color:var(--text-3)">${t('Aucun : le bloqueur est actif partout.')}</div>`}</div>`;
     },
     'custom-streams'(cfg) {
       const list = cfg.stream.customStreams;
-      return `${list.length ? `<ul class="list">${list.map((s, i) => `<li><span class="badge">${esc((s.lang || '··').toUpperCase())}</span><span class="grow" title="${esc(s.url)}">${esc(s.label || s.url)}</span><button class="icon-btn icon-btn-sm" data-act="custom-del" data-i="${i}" aria-label="Retirer" data-tip="Retirer ce stream">${icon('trash-2', 'ic-sm')}</button></li>`).join('')}</ul>` : '<div class="empty">Aucun stream ajouté à la main. Ils passent avant ceux trouvés sur la page des matchs.</div>'}
+      return `${list.length ? `<ul class="list">${list.map((s, i) => `<li><span class="badge">${esc((s.lang || '··').toUpperCase())}</span><span class="grow" title="${esc(s.url)}">${esc(s.label || s.url)}</span><button class="icon-btn icon-btn-sm" data-act="custom-del" data-i="${i}" aria-label="${t('Retirer')}" data-tip="${t('Retirer ce stream')}">${icon('trash-2', 'ic-sm')}</button></li>`).join('')}</ul>` : `<div class="empty">${t('Aucun stream ajouté à la main. Ils passent avant ceux trouvés sur la page des matchs.')}</div>`}
         <div class="set-actions">
-          <input class="input" id="custom-url" placeholder="https://… (lien d'un stream)" style="flex:1;min-width:220px" spellcheck="false">
-          <select class="select" id="custom-lang" style="min-width:130px"><option value="fr">Français</option><option value="en">Anglais</option><option value="other">Autre</option></select>
-          <button class="btn btn-sm btn-primary" data-act="custom-add">${icon('plus', 'ic-sm')}Ajouter</button>
-          <button class="btn btn-sm" data-act="custom-current">Ajouter le stream actuel</button>
+          <input class="input" id="custom-url" placeholder="${t("https://… (lien d'un stream)")}" style="flex:1;min-width:220px" spellcheck="false">
+          <select class="select" id="custom-lang" style="min-width:130px"><option value="fr">${t('Français')}</option><option value="en">${t('Anglais')}</option><option value="other">${t('Autre')}</option></select>
+          <button class="btn btn-sm btn-primary" data-act="custom-add">${icon('plus', 'ic-sm')}${t('Ajouter')}</button>
+          <button class="btn btn-sm" data-act="custom-current">${t('Ajouter le stream actuel')}</button>
         </div>`;
     },
     'overlay-status'(cfg) {
       const st = this.actions.overlayStatus?.() ?? {};
       const p = providerOf(cfg.overlay.provider);
       const on = cfg.source === 'overlay';
-      return `<div class="set-row"><div class="set-label"><span class="lbl"><span class="status-dot ${on ? (st.capturing ? 'ok' : 'warn pulse') : ''}"></span>${on ? (st.capturing ? 'Surcouche active' : 'Surcouche en démarrage…') : 'Surcouche arrêtée'}</span>
-          <div class="desc">${on ? esc(st.detail ?? `Diffuseur : ${p.name}`) : 'Rondelle affiche le stream dans sa propre fenêtre (lecteur intégré).'}</div></div>
-          <div class="set-control">${on ? '<button class="btn btn-sm" data-act="overlay-stop">Revenir au lecteur intégré</button>' : '<button class="btn btn-sm btn-primary" data-act="overlay-start">' + icon('cast', 'ic-sm') + 'Activer la surcouche</button>'}
-          ${p.url ? `<button class="btn btn-sm" data-act="open-provider">${icon('external-link', 'ic-sm')}Ouvrir ${esc(p.name)}</button>` : ''}</div></div>
+      return `<div class="set-row"><div class="set-label"><span class="lbl"><span class="status-dot ${on ? (st.capturing ? 'ok' : 'warn pulse') : ''}"></span>${on ? (st.capturing ? t('Surcouche active') : t('Surcouche en démarrage…')) : t('Surcouche arrêtée')}</span>
+          <div class="desc">${on ? esc(st.detail ?? t('Diffuseur : {name}', { name: p.name })) : t('Rondelle affiche le stream dans sa propre fenêtre (lecteur intégré).')}</div></div>
+          <div class="set-control">${on ? `<button class="btn btn-sm" data-act="overlay-stop">${t('Revenir au lecteur intégré')}</button>` : `<button class="btn btn-sm btn-primary" data-act="overlay-start">${icon('cast', 'ic-sm')}${t('Activer la surcouche')}</button>`}
+          ${p.url ? `<button class="btn btn-sm" data-act="open-provider">${icon('external-link', 'ic-sm')}${t('Ouvrir {name}', { name: esc(p.name) })}</button>` : ''}</div></div>
         <div class="set-row" style="display:block"><ol class="steps">
-          <li>Ouvrez le match sur le site de <b>${esc(p.url ? p.name : 'votre fournisseur')}</b> dans votre navigateur (ou l'appli de votre fournisseur) et connectez-vous avec votre abonnement télé.</li>
-          <li>Mettez la vidéo <b>en plein écran</b> sur l'écran choisi ci-dessous.</li>
-          <li>Rondelle se pose par-dessus, en transparence : les clics passent à travers. Calibrez le tableau de score une fois (bouton Calibrer).</li></ol></div>`;
+          <li>${t("Ouvrez le match sur le site de <b>{name}</b> dans votre navigateur (ou l'appli de votre fournisseur) et connectez-vous avec votre abonnement télé.", { name: esc(p.url ? p.name : t('votre fournisseur')) })}</li>
+          <li>${t("Mettez la vidéo <b>en plein écran</b> sur l'écran choisi ci-dessous.")}</li>
+          <li>${t('Rondelle se pose par-dessus, en transparence : les clics passent à travers. Le tableau de score est trouvé automatiquement (ou calibrez-le : bouton Calibrer).')}</li></ol></div>`;
     },
     profiles(cfg) {
       const list = cfg.vision.profiles;
-      return `${list.length ? `<ul class="list">${list.map((p) => `<li><span class="grow">${esc(p.name)}</span>${p.id === cfg.vision.activeProfile ? '<span class="badge badge-accent">Actif</span>' : `<button class="btn btn-sm btn-ghost" data-act="profile-use" data-id="${esc(p.id)}">Utiliser</button>`}${p.signature ? '' : '<span class="badge" data-tip="La référence du tableau sera apprise au prochain match">À apprendre</span>'}<button class="icon-btn icon-btn-sm" data-act="profile-del" data-id="${esc(p.id)}" aria-label="Supprimer" data-tip="Supprimer ce profil">${icon('trash-2', 'ic-sm')}</button></li>`).join('')}</ul>` : '<div class="empty">Aucun tableau calibré. Pendant le jeu, calibrez le tableau de score du diffuseur : la régie détecte alors les pubs et se synchronise sur l\'horloge.</div>'}
-        <div class="set-actions"><button class="btn btn-sm btn-primary" data-act="calibrate">${icon('scan', 'ic-sm')}Calibrer maintenant</button></div>`;
+      return `${list.length ? `<ul class="list">${list.map((p) => `<li><span class="grow">${esc(p.name)}</span>${p.auto ? `<span class="badge" data-tip="${t('Trouvé automatiquement pendant le jeu')}">${t('Auto')}</span>` : ''}${p.id === cfg.vision.activeProfile ? `<span class="badge badge-accent">${t('Actif')}</span>` : `<button class="btn btn-sm btn-ghost" data-act="profile-use" data-id="${esc(p.id)}">${t('Utiliser')}</button>`}${p.signature ? '' : `<span class="badge" data-tip="${t('La référence du tableau sera apprise au prochain match')}">${t('À apprendre')}</span>`}<button class="icon-btn icon-btn-sm" data-act="profile-del" data-id="${esc(p.id)}" aria-label="${t('Supprimer')}" data-tip="${t('Supprimer ce profil')}">${icon('trash-2', 'ic-sm')}</button></li>`).join('')}</ul>` : `<div class="empty">${t("Aucun tableau calibré. Pendant le jeu, la régie le cherche toute seule (calibration automatique), ou calibrez-le vous-même : elle détecte alors les pubs et se synchronise sur l'horloge.")}</div>`}
+        <div class="set-actions"><button class="btn btn-sm btn-primary" data-act="calibrate">${icon('scan', 'ic-sm')}${t('Calibrer maintenant')}</button></div>`;
     },
     roster() {
       return '<div id="roster-panel" style="padding:16px"></div>';
     },
     keys() {
-      const grid = (list) => `<div class="keys-grid">${list.map(([k, d]) => `<span>${k.split(' / ').map((x) => `<kbd>${esc(x)}</kbd>`).join(' ')}</span><span>${esc(d)}</span>`).join('')}</div>`;
-      return `${grid(KEYS)}<div class="set-row" style="display:block"><div class="set-label"><span class="lbl">En mode surcouche (partout dans Windows)</span></div></div>${grid(GLOBAL_KEYS)}`;
+      const grid = (list) => `<div class="keys-grid">${list.map(([k, d]) => `<span>${k.split(' / ').map((x) => `<kbd>${esc(t(x))}</kbd>`).join(' ')}</span><span>${esc(t(d))}</span>`).join('')}</div>`;
+      return `${grid(KEYS)}<div class="set-row" style="display:block"><div class="set-label"><span class="lbl">${t('En mode surcouche (partout dans Windows)')}</span></div></div>${grid(GLOBAL_KEYS)}`;
     },
     troubleshoot() {
       return `<div class="set-actions">
-        <button class="btn btn-sm" data-act="diag">${icon('copy', 'ic-sm')}Copier le diagnostic</button>
-        <button class="btn btn-sm" data-act="open-data">${icon('folder-open', 'ic-sm')}Dossier des données</button>
-        <button class="btn btn-sm" data-act="welcome">${icon('sparkles', 'ic-sm')}Revoir l'accueil</button>
-        <button class="btn btn-sm" data-act="config-export">${icon('file-down', 'ic-sm')}Exporter les réglages</button>
-        <button class="btn btn-sm" data-act="config-import">${icon('file-up', 'ic-sm')}Importer des réglages</button>
-        <button class="btn btn-sm btn-danger" data-act="reset">${icon('rotate-ccw', 'ic-sm')}Réinitialiser les réglages</button></div>`;
+        <button class="btn btn-sm" data-act="diag">${icon('copy', 'ic-sm')}${t('Copier le diagnostic')}</button>
+        <button class="btn btn-sm" data-act="open-data">${icon('folder-open', 'ic-sm')}${t('Dossier des données')}</button>
+        <button class="btn btn-sm" data-act="welcome">${icon('sparkles', 'ic-sm')}${t("Revoir l'accueil")}</button>
+        <button class="btn btn-sm" data-act="config-export">${icon('file-down', 'ic-sm')}${t('Exporter les réglages')}</button>
+        <button class="btn btn-sm" data-act="config-import">${icon('file-up', 'ic-sm')}${t('Importer des réglages')}</button>
+        <button class="btn btn-sm btn-danger" data-act="reset">${icon('rotate-ccw', 'ic-sm')}${t('Réinitialiser les réglages')}</button></div>`;
     },
     about() {
       const info = this.actions.info?.() ?? {};
-      return `<div class="about-hero">${logoMarkHtml()}<div><h4>${APP_NAME}</h4><div class="muted">${APP_TAGLINE} · version ${esc(info.version ?? '')}</div></div></div>
+      return `<div class="about-hero">${logoMarkHtml()}<div><h4>${APP_NAME}</h4><div class="muted">${t(APP_TAGLINE)} · version ${esc(info.version ?? '')}</div></div></div>
         <div class="set-actions">
-          <button class="btn btn-sm btn-primary" data-act="check-updates">${icon('download', 'ic-sm')}Vérifier les mises à jour</button>
-          <button class="btn btn-sm" data-act="open-url" data-url="${ISSUES_URL}">${icon('bell', 'ic-sm')}Signaler un problème</button>
-          <button class="btn btn-sm" data-act="open-url" data-url="${REPO_URL}">${icon('external-link', 'ic-sm')}Code source</button>
+          <button class="btn btn-sm btn-primary" data-act="check-updates">${icon('download', 'ic-sm')}${t('Vérifier les mises à jour')}</button>
+          <button class="btn btn-sm" data-act="open-url" data-url="${ISSUES_URL}">${icon('bell', 'ic-sm')}${t('Signaler un problème')}</button>
+          <button class="btn btn-sm" data-act="open-url" data-url="${REPO_URL}">${icon('external-link', 'ic-sm')}${t('Code source')}</button>
         </div>
         <div class="legal">
-          <p>${APP_NAME} est une application indépendante, <b>non affiliée à la LNH ni à ses équipes</b>. Les noms, logos et photos des équipes et des joueurs appartiennent à leurs propriétaires ; ils sont chargés depuis les services publics de la LNH, jamais inclus dans l'application.</p>
-          <p>${APP_NAME} ne fournit aucun flux vidéo : elle ajoute une surcouche à ce que vous regardez. Respectez les conditions de votre abonnement et la réglementation de votre pays.</p>
-          <p>Reconnaissance vocale, analyse de l'image et têtes émoji fonctionnent sur votre ordinateur : aucune image ni aucun son n'est envoyé.</p>
+          <p>${t("{app} est une application indépendante, <b>non affiliée à la LNH ni à ses équipes</b>. Les noms, logos et photos des équipes et des joueurs appartiennent à leurs propriétaires ; ils sont chargés depuis les services publics de la LNH, jamais inclus dans l'application.", { app: APP_NAME })}</p>
+          <p>${t('{app} ne fournit aucun flux vidéo : elle ajoute une surcouche à ce que vous regardez. Respectez les conditions de votre abonnement et la réglementation de votre pays.', { app: APP_NAME })}</p>
+          <p>${t("L'analyse de l'image et les têtes émoji fonctionnent sur votre ordinateur : aucune image ni aucun son n'est envoyé.")}</p>
         </div>
-        <ul class="list">${LICENSES.map(([n, l]) => `<li><span class="grow">${esc(n)}</span><span class="badge">${esc(l)}</span></li>`).join('')}</ul>`;
+        <ul class="list">${LICENSES.map(([n, l]) => `<li><span class="grow">${esc(t(n))}</span><span class="badge">${esc(l)}</span></li>`).join('')}</ul>`;
     },
   };
 
@@ -307,8 +308,8 @@ export class SettingsPanel {
     let res;
     if (reanalyse) res = { file: this.getConfig().audio.teamSounds?.[team]?.[kind]?.file, name: this.getConfig().audio.teamSounds?.[team]?.[kind]?.name };
     else if (url != null) {
-      if (!url) return toast('Collez un lien direct vers un fichier audio', { kind: 'warn' });
-      toast('Téléchargement du son…');
+      if (!url) return toast(t('Collez un lien direct vers un fichier audio'), { kind: 'warn' });
+      toast(t('Téléchargement du son…'));
       res = await window.rondelle.downloadTeamSound(team, kind, url);
     } else res = await window.rondelle.importTeamSound(team, kind);
     if (!res) return;
@@ -333,14 +334,14 @@ export class SettingsPanel {
     } catch (err) {
       await window.rondelle.removeTeamSound(team, kind);
       await this.#save((cfg) => delete cfg.audio.teamSounds?.[team]?.[kind]);
-      return toast(`Son illisible : ${err.message}`, { kind: 'bad', ms: 8000 });
+      return toast(t('Son illisible : {err}', { err: err.message }), { kind: 'bad', ms: 8000 });
     }
     this.soundLink = null;
     await this.#save((cfg) => {
       const s = cfg.audio.teamSounds?.[team]?.[kind];
       if (s) Object.assign(s, { start: Math.round(start * 4) / 4, dur });
     });
-    toast(kind === 'song' ? `Chanson importée : extrait de ${formatClock(start)} à ${formatClock(start + dur)}` : 'Klaxon importé', { kind: 'ok' });
+    toast(kind === 'song' ? t('Chanson importée : extrait de {a} à {b}', { a: formatClock(start), b: formatClock(start + dur) }) : t('Klaxon importé'), { kind: 'ok' });
   }
 
   #item(path) {
@@ -424,7 +425,7 @@ export class SettingsPanel {
         return a.previewSound?.(this.soundTeam ?? this.getConfig().team, b.dataset.kind);
       case 'snd-search': {
         const team = this.soundTeam ?? this.getConfig().team;
-        return window.rondelle.openExternal(soundSearchUrl(teamLabel(team), b.dataset.kind));
+        return window.rondelle.openExternal(soundSearchUrl(teamLabel(team), b.dataset.kind, lang()));
       }
       case 'snd-link':
         this.soundLink = this.soundLink === b.dataset.kind ? null : b.dataset.kind;
@@ -462,14 +463,14 @@ export class SettingsPanel {
         });
       case 'custom-add': {
         const url = this.el.querySelector('#custom-url').value.trim();
-        if (!/^https?:\/\//i.test(url)) return a.toast('Adresse invalide : elle doit commencer par https://', { kind: 'bad' });
+        if (!/^https?:\/\//i.test(url)) return a.toast(t('Adresse invalide : elle doit commencer par https://'), { kind: 'bad' });
         const lang = this.el.querySelector('#custom-lang').value;
         await this.#save((cfg) => cfg.stream.customStreams.push({ url, lang, label: new URL(url).hostname }));
         return a.refreshStreams();
       }
       case 'custom-current': {
         const cur = a.currentUrl();
-        if (!cur || !/^https?:/.test(cur)) return a.toast('Aucun stream en cours', { kind: 'bad' });
+        if (!cur || !/^https?:/.test(cur)) return a.toast(t('Aucun stream en cours'), { kind: 'bad' });
         const lang = this.el.querySelector('#custom-lang').value;
         await this.#save((cfg) => cfg.stream.customStreams.push({ url: cur, lang, label: new URL(cur).hostname }));
         return a.refreshStreams();
@@ -492,14 +493,14 @@ export class SettingsPanel {
         return a.copyDiagnostics();
       case 'config-export': {
         const r = await window.rondelle.exportConfig();
-        if (r?.file) a.toast?.(`Réglages exportés : ${r.file}`, { kind: 'ok', ms: 7000 });
+        if (r?.file) a.toast?.(t('Réglages exportés : {file}', { file: r.file }), { kind: 'ok', ms: 7000 });
         return;
       }
       case 'config-import': {
         const r = await window.rondelle.importConfig();
         if (r?.error) a.toast?.(r.error, { kind: 'bad', ms: 8000 });
         else if (r?.ok) {
-          a.toast?.('Réglages importés', { kind: 'ok' });
+          a.toast?.(t('Réglages importés'), { kind: 'ok' });
           this.render();
         }
         return;
@@ -510,7 +511,7 @@ export class SettingsPanel {
         this.toggle(false);
         return a.welcome?.();
       case 'reset':
-        if (!confirm('Remettre tous les réglages par défaut ? Vos tableaux calibrés et vos streams ajoutés seront effacés.')) return;
+        if (!confirm(t('Remettre tous les réglages par défaut ? Vos tableaux calibrés et vos streams ajoutés seront effacés.'))) return;
         return this.#save((cfg) => Object.assign(cfg, structuredClone(DEFAULT_CONFIG), { onboarded: true, team: cfg.team }));
       case 'check-updates':
         return a.checkUpdates?.(true);

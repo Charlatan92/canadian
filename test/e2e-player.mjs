@@ -28,7 +28,7 @@ const LIST = `http://localhost:${port}/list.html`;
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'rondelle-e2e-'));
 fs.writeFileSync(
   path.join(userData, 'config.json'),
-  JSON.stringify({ team: 'BOS', onboarded: true, stream: { homeUrl: LIST, adblock: false, autoStart: false } }),
+  JSON.stringify({ team: 'BOS', onboarded: true, ui: { language: 'fr' }, stream: { homeUrl: LIST, adblock: false, autoStart: false } }),
 );
 
 const app = await electron.launch({ args: ['.', '--no-sandbox'], env: { ...process.env, RONDELLE_USER_DATA: userData } });

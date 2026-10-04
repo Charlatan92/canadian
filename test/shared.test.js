@@ -32,6 +32,10 @@ test('config : fusion profonde, types respectés, clés inconnues ignorées', ()
     stream: { customStreams: [{ url: 'https://x' }] },
     inconnu: 1,
   });
+  // Dictionnaire libre (sons par équipe) : gardé tel quel, pas filtré par les clés par défaut
+  const sounds = { MTL: { song: { file: 'C:/sons/MTL-song.mp3', name: 'Le Goal Song', start: 42, dur: 15 } } };
+  assert.deepEqual(mergeConfig(DEFAULT_CONFIG, { audio: { teamSounds: sounds } }).audio.teamSounds, sounds);
+  assert.deepEqual(mergeConfig(DEFAULT_CONFIG, { audio: { teamSounds: 'x' } }).audio.teamSounds, {});
   assert.equal(c.audio.adDuckDb, -30);
   assert.equal(c.audio.hornVolume, DEFAULT_CONFIG.audio.hornVolume);
   assert.equal(c.stream.customStreams.length, 1);
@@ -723,4 +727,48 @@ test('apparence des images : le match ressemble au match, pas une pub', async ()
   assert.ok(lookSimilarity(game(0), game(2)) > 0.85);
   assert.ok(lookSimilarity(game(0), whiteAd) < 0.6, `pub blanche ${lookSimilarity(game(0), whiteAd)}`);
   assert.ok(lookSimilarity(game(0), colorAd) < 0.45);
+});
+
+test('langue de l\'interface : anglais, automatique, pluriels et ordinaux', async () => {
+  const { setLanguage, t, L, ordinal, plural, decimal, lang } = await import('../src/shared/i18n.js');
+  const { periodName, penaltyLabel } = await import('../src/shared/nhl.js');
+  try {
+    assert.equal(setLanguage('auto', 'fr-CA'), 'fr');
+    assert.equal(setLanguage('auto', 'en-US'), 'en');
+    assert.equal(setLanguage('auto', ''), 'fr'); // langue du système inconnue : français
+    assert.equal(setLanguage('fr', 'en-US'), 'fr');
+    setLanguage('en');
+    assert.equal(lang(), 'en');
+    assert.equal(t('Réglages'), 'Settings');
+    assert.equal(t('Écran {n}', { n: 2 }), 'Screen 2');
+    assert.equal(t('Phrase absente du dictionnaire'), 'Phrase absente du dictionnaire'); // repli : le français
+    assert.equal(L('Bonjour {x}', 'Hello {x}', { x: 'Cole' }), 'Hello Cole');
+    assert.deepEqual([1, 2, 3, 4, 11, 12, 13, 21, 22, 101].map(ordinal), ['1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '101st']);
+    assert.equal(plural(0, 'point', 'points'), 'points');
+    assert.equal(plural(1, 'point', 'points'), 'point');
+    assert.equal(decimal(1.333), '1.33');
+    assert.equal(periodName(2), '2nd');
+    assert.equal(periodName(4), 'OT');
+    assert.equal(penaltyLabel('illegal-check-to-head'), 'Illegal check to head');
+    // Analyse d'un but en anglais : pieds, pas mètres
+    const players = new Map([[1, { id: 1, name: 'Cole Caufield', last: 'Caufield', teamId: 8 }]]);
+    const game = { home: { id: 8, abbrev: 'MTL', name: 'Canadiens' }, away: { id: 10, abbrev: 'TOR', name: 'Maple Leafs' }, players, plays: [] };
+    const goal = { id: 11, type: 'goal', period: 2, gt: 1506, teamId: 8, situation: '1551', details: { scoringPlayerId: 1, shotType: 'wrist', xCoord: 80, yCoord: -7, homeScore: 1, awayScore: 0 } };
+    game.plays = [goal];
+    const text = goalAnalysis(game, goal).text;
+    assert.match(text, /ft/);
+    assert.doesNotMatch(text, /\bmètres?\b|\bm\b/);
+    setLanguage('fr');
+    assert.equal(ordinal(1), '1er');
+    assert.equal(plural(0, 'point', 'points'), 'point');
+    assert.equal(decimal(1.333), '1,33');
+  } finally {
+    setLanguage('fr');
+  }
+});
+
+test('traductions anglaises : aucun texte de l\'interface sans traduction', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const out = execFileSync(process.execPath, ['scripts/i18n-check.mjs'], { encoding: 'utf8', cwd: new URL('..', import.meta.url).pathname });
+  assert.match(out, / 0 sans traduction/);
 });

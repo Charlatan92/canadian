@@ -1,6 +1,8 @@
 // Erreurs de lecture des streams : reconnaître les requêtes vidéo, comprendre pourquoi un flux
 // HLS/DASH ne se charge pas et décider de la reprise (recharger, couper le bloqueur, changer).
 
+import { t } from './i18n.js';
+
 const MEDIA_EXT = /\.(m3u8|mpd|ts|m4s|m4a|m4v|mp4|aac|key|vtt|webm)$/i;
 const MANIFEST_EXT = /\.(m3u8|mpd)$/i;
 const MANIFEST_TYPE = /mpegurl|dash\+xml/i;
@@ -26,18 +28,18 @@ export function isManifest({ url, contentType = '' } = {}) {
 
 // Échec réseau d'une liste de lecture (vu par le process principal) -> cause probable
 export function classifyMediaFailure({ status = 0, error = '', contentType = '' } = {}) {
-  if (/BLOCKED_BY_CLIENT/i.test(error)) return { kind: 'blocked', label: 'bloquée par le bloqueur de pubs' };
+  if (/BLOCKED_BY_CLIENT/i.test(error)) return { kind: 'blocked', label: t('bloquée par le bloqueur de pubs') };
   if (/NAME_NOT_RESOLVED|CONNECTION_(REFUSED|RESET|CLOSED|TIMED_OUT|FAILED)|TIMED_OUT|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED|TUNNEL|SSL|CERT/i.test(error)) {
-    return { kind: 'unreachable', label: 'serveur du stream injoignable' };
+    return { kind: 'unreachable', label: t('serveur du stream injoignable') };
   }
   if (/ABORTED/i.test(error)) return null; // le lecteur a lui-même annulé (changement de qualité, fermeture)
-  if (error) return { kind: 'network', label: `erreur réseau (${error.replace(/^net::/, '')})` };
-  if (status === 401 || status === 403 || status === 451) return { kind: 'forbidden', label: `accès refusé par le serveur (${status})` };
-  if (status === 404 || status === 410) return { kind: 'gone', label: `flux introuvable (${status}) : stream terminé ou lien expiré` };
-  if (status >= 500) return { kind: 'server', label: `serveur du stream en panne (${status})` };
-  if (status >= 400) return { kind: 'http', label: `refus du serveur (${status})` };
+  if (error) return { kind: 'network', label: t('erreur réseau ({err})', { err: error.replace(/^net::/, '') }) };
+  if (status === 401 || status === 403 || status === 451) return { kind: 'forbidden', label: t('accès refusé par le serveur ({status})', { status }) };
+  if (status === 404 || status === 410) return { kind: 'gone', label: t('flux introuvable ({status}) : stream terminé ou lien expiré', { status }) };
+  if (status >= 500) return { kind: 'server', label: t('serveur du stream en panne ({status})', { status }) };
+  if (status >= 400) return { kind: 'http', label: t('refus du serveur ({status})', { status }) };
   if (status >= 200 && status < 300 && /text\/html/i.test(contentType)) {
-    return { kind: 'not-playlist', label: 'le serveur a renvoyé une page web au lieu de la vidéo' };
+    return { kind: 'not-playlist', label: t('le serveur a renvoyé une page web au lieu de la vidéo') };
   }
   return null;
 }
@@ -45,14 +47,14 @@ export function classifyMediaFailure({ status = 0, error = '', contentType = '' 
 // Code affiché par le lecteur (Clappr, hls.js, video.js, JW Player…) -> explication
 export function describePlayerError(code = '') {
   const c = String(code);
-  if (/manifestLoad|levelLoad|manifestLoadTimeOut|levelLoadTimeOut/i.test(c)) return 'la liste de lecture du flux ne se charge pas';
-  if (/manifestParsing|manifestIncompatible|levelEmpty/i.test(c)) return 'le flux reçu est invalide (page web ou flux vide à la place de la vidéo)';
-  if (/fragLoad|fragParsing|bufferStalled|bufferNudge/i.test(c)) return 'les morceaux de vidéo n\'arrivent pas';
-  if (/keyLoad|keySystem|drm|eme/i.test(c)) return 'la vidéo est protégée (DRM)';
-  if (/^media:4|SRC_NOT_SUPPORTED|NotSupported/i.test(c)) return 'format de vidéo non lu';
-  if (/^media:2|network/i.test(c)) return 'erreur réseau du lecteur';
-  if (/^media:3|decode/i.test(c)) return 'vidéo illisible (décodage)';
-  return 'le lecteur affiche une erreur';
+  if (/manifestLoad|levelLoad|manifestLoadTimeOut|levelLoadTimeOut/i.test(c)) return t('la liste de lecture du flux ne se charge pas');
+  if (/manifestParsing|manifestIncompatible|levelEmpty/i.test(c)) return t('le flux reçu est invalide (page web ou flux vide à la place de la vidéo)');
+  if (/fragLoad|fragParsing|bufferStalled|bufferNudge/i.test(c)) return t("les morceaux de vidéo n'arrivent pas");
+  if (/keyLoad|keySystem|drm|eme/i.test(c)) return t('la vidéo est protégée (DRM)');
+  if (/^media:4|SRC_NOT_SUPPORTED|NotSupported/i.test(c)) return t('format de vidéo non lu');
+  if (/^media:2|network/i.test(c)) return t('erreur réseau du lecteur');
+  if (/^media:3|decode/i.test(c)) return t('vidéo illisible (décodage)');
+  return t('le lecteur affiche une erreur');
 }
 
 // Étapes de reprise après une erreur du lecteur, dans l'ordre :

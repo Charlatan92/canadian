@@ -13,6 +13,10 @@ export function setLanguage(pref = 'auto', systemLocale = '') {
   return LANG;
 }
 
+// Marque un texte à traduire plus tard, à l'affichage (listes de libellés) : t(texte) le traduit,
+// scripts/i18n-check.mjs le repère
+export const N_ = (text) => text;
+
 export const lang = () => LANG;
 export const locale = () => (LANG === 'en' ? 'en-CA' : 'fr-CA');
 
@@ -38,8 +42,9 @@ export function ordinal(n) {
   return n === 1 ? '1er' : `${n}e`;
 }
 
+// Singulier ou pluriel : « 0 point, 1 point, 2 points » en français, « 0 points, 1 point » en anglais
 export function plural(n, one, many) {
-  return Math.abs(n) >= 2 ? many : one;
+  return (LANG === 'en' ? Math.abs(n) !== 1 : Math.abs(n) >= 2) ? many : one;
 }
 
 // Nombre décimal à la mode de la langue (1,33 / 1.33)

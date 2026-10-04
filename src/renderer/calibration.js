@@ -1,13 +1,14 @@
 import { parseClockText, parseScoreText } from '../shared/ocr.js';
 import { autoDetectScorebug, rgbaToGray } from '../shared/vision.js';
+import { N_, t } from '../shared/i18n.js';
 import { esc, icon } from './util.js';
 
 const STEPS = [
-  { key: 'scorebug', label: '1. Tableau de score', color: '#ffd166', help: 'Encadrez tout le tableau de score (noms, scores, période, horloge). Il sert à détecter les pubs : quand il disparaît, c\'est la pause.' },
-  { key: 'clock', label: '2. Horloge', color: '#06d6a0', help: 'Encadrez seulement le temps restant (ex. 12:34). Il sert à synchroniser la régie avec votre stream, sans divulgâcheur.' },
-  { key: 'scoreTeam', label: '3. Score de votre équipe', color: '#ef476f', help: 'Encadrez le chiffre du score de l\'équipe suivie (facultatif : confirme les buts directement à l\'écran).' },
-  { key: 'scoreOpp', label: '4. Score adverse', color: '#118ab2', help: 'Encadrez le chiffre du score de l\'adversaire (facultatif).' },
-  { key: 'logo', label: '5. Logo de la chaîne', color: '#c77dff', help: 'Encadrez le logo de la chaîne s\'il reste dans un coin de l\'image (facultatif, mais recommandé) : présent pendant ses ralentis et analyses, absent pendant les pubs. Les stats ne s\'affichent alors que pendant les vraies pubs.' },
+  { key: 'scorebug', label: N_('1. Tableau de score'), color: '#ffd166', help: N_('Encadrez tout le tableau de score (noms, scores, période, horloge). Il sert à détecter les pubs : quand il disparaît, c\'est la pause.') },
+  { key: 'clock', label: N_('2. Horloge'), color: '#06d6a0', help: N_('Encadrez seulement le temps restant (ex. 12:34). Il sert à synchroniser la régie avec votre stream, sans divulgâcheur.') },
+  { key: 'scoreTeam', label: N_('3. Score de votre équipe'), color: '#ef476f', help: N_('Encadrez le chiffre du score de l\'équipe suivie (facultatif : confirme les buts directement à l\'écran).') },
+  { key: 'scoreOpp', label: N_('4. Score adverse'), color: '#118ab2', help: N_('Encadrez le chiffre du score de l\'adversaire (facultatif).') },
+  { key: 'logo', label: N_('5. Logo de la chaîne'), color: '#c77dff', help: N_('Encadrez le logo de la chaîne s\'il reste dans un coin de l\'image (facultatif, mais recommandé) : présent pendant ses ralentis et analyses, absent pendant les pubs. Les stats ne s\'affichent alors que pendant les vraies pubs.') },
 ];
 const REGION_KEYS = STEPS.map((s) => s.key);
 
@@ -39,15 +40,15 @@ export class Calibration {
     this.el.hidden = false;
     this.el.innerHTML = `
       <div class="cal-head">
-        <h2>Calibrer le tableau de score</h2>
-        <div class="cal-steps" role="group">${STEPS.map((s, i) => `<button data-step="${i}"><i style="background:${s.color}"></i>${esc(s.label)}</button>`).join('')}</div>
-        <button class="btn btn-sm" data-act="auto" data-tip="Laissez le jeu se dérouler une dizaine de secondes : la zone qui ne bouge pas pendant que la caméra bouge, c'est le tableau.">${icon('wand-sparkles', 'ic-sm')}Détection auto</button>
-        <button class="btn btn-sm" data-act="snap" data-tip="Reprendre une image du stream">${icon('refresh-cw', 'ic-sm')}Nouvelle image</button>
+        <h2>${t('Calibrer le tableau de score')}</h2>
+        <div class="cal-steps" role="group">${STEPS.map((s, i) => `<button data-step="${i}"><i style="background:${s.color}"></i>${esc(t(s.label))}</button>`).join('')}</div>
+        <button class="btn btn-sm" data-act="auto" data-tip="${t("Laissez le jeu se dérouler une dizaine de secondes : la zone qui ne bouge pas pendant que la caméra bouge, c'est le tableau.")}">${icon('wand-sparkles', 'ic-sm')}${t('Détection auto')}</button>
+        <button class="btn btn-sm" data-act="snap" data-tip="${t('Reprendre une image du stream')}">${icon('refresh-cw', 'ic-sm')}${t('Nouvelle image')}</button>
         <div class="spacer"></div>
-        <input class="input" id="cal-name" placeholder="Nom du profil (RDS, TVA Sports…)" value="${esc(current?.name ?? this.guessName())}" aria-label="Nom du profil">
-        <button class="btn btn-sm" data-act="new" data-tip="Garder le profil actuel et en créer un autre (autre diffuseur)">Nouveau profil</button>
-        <button class="btn btn-sm btn-primary" data-act="save">${icon('check', 'ic-sm')}Enregistrer</button>
-        <button class="btn btn-sm btn-ghost" data-act="cancel">Annuler</button>
+        <input class="input" id="cal-name" placeholder="${t('Nom du profil (RDS, TVA Sports…)')}" value="${esc(current?.name ?? this.guessName())}" aria-label="${t('Nom du profil')}">
+        <button class="btn btn-sm" data-act="new" data-tip="${t('Garder le profil actuel et en créer un autre (autre diffuseur)')}">${t('Nouveau profil')}</button>
+        <button class="btn btn-sm btn-primary" data-act="save">${icon('check', 'ic-sm')}${t('Enregistrer')}</button>
+        <button class="btn btn-sm btn-ghost" data-act="cancel">${t('Annuler')}</button>
       </div>
       <div class="cal-help"></div>
       <div class="cal-canvas-wrap"><canvas></canvas></div>`;
@@ -75,14 +76,14 @@ export class Calibration {
       this.canvas.height = img.naturalHeight;
       this.#draw();
     } catch (err) {
-      this.toast(`Impossible de capturer l'image : ${err.message}. Lancez un stream en cours de jeu.`, { kind: 'bad' });
+      this.toast(t("Impossible de capturer l'image : {err}. Lancez un stream en cours de jeu.", { err: err.message }), { kind: 'bad' });
     }
   }
 
   #renderSteps() {
     this.el.querySelectorAll('[data-step]').forEach((b, i) => b.classList.toggle('on', i === this.step));
     const s = STEPS[this.step];
-    this.el.querySelector('.cal-help').innerHTML = `${esc(s.help)} <span id="cal-read" class="muted"></span>`;
+    this.el.querySelector('.cal-help').innerHTML = `${esc(t(s.help))} <span id="cal-read" class="muted"></span>`;
   }
 
   #pos(e) {
@@ -133,7 +134,7 @@ export class Calibration {
       ctx.strokeStyle = s.color;
       ctx.strokeRect(r[0] * W, r[1] * H, r[2] * W, r[3] * H);
       ctx.fillStyle = s.color;
-      ctx.fillText(s.label, r[0] * W, r[1] * H - 6);
+      ctx.fillText(t(s.label), r[0] * W, r[1] * H - 6);
     }
     if (this.drag) {
       const [x0, y0] = this.drag.start;
@@ -162,12 +163,12 @@ export class Calibration {
     if (!out) return;
     out.textContent =
       parsed == null
-        ? `— Lecture : « ${(text ?? '').trim()} » (non reconnu : resserrez la zone autour des chiffres)`
-        : `— Lecture OK : « ${(text ?? '').trim()} »`;
+        ? t('— Lecture : « {text} » (non reconnu : resserrez la zone autour des chiffres)', { text: (text ?? '').trim() })
+        : t('— Lecture OK : « {text} »', { text: (text ?? '').trim() });
   }
 
   async #auto() {
-    this.toast('Détection en cours : laissez le jeu se dérouler ~12 secondes…');
+    this.toast(t('Détection en cours : laissez le jeu se dérouler ~12 secondes…'));
     const w = 192;
     const h = 108;
     const frames = await this.bridge.burst({ w, h, count: 30, intervalMs: 400 });
@@ -176,18 +177,18 @@ export class Calibration {
       w,
       h,
     );
-    if (!box) return this.toast('Rien de concluant : la caméra doit bouger (jeu en cours). Dessinez la zone à la main.', { kind: 'warn' });
+    if (!box) return this.toast(t('Rien de concluant : la caméra doit bouger (jeu en cours). Dessinez la zone à la main.'), { kind: 'warn' });
     this.rects.scorebug = box;
     this.step = 1;
     this.#renderSteps();
     await this.#snapshot();
-    this.toast('Tableau de score trouvé. Encadrez maintenant l\'horloge.');
+    this.toast(t("Tableau de score trouvé. Encadrez maintenant l'horloge."));
   }
 
   async #save() {
-    if (!this.rects.scorebug) return this.toast('Encadrez au moins le tableau de score', { kind: 'warn' });
+    if (!this.rects.scorebug) return this.toast(t('Encadrez au moins le tableau de score'), { kind: 'warn' });
     const cfg = structuredClone(this.getConfig());
-    const name = this.el.querySelector('#cal-name').value.trim() || 'Profil';
+    const name = this.el.querySelector('#cal-name').value.trim() || t('Profil');
     const id = this.editing ?? `p${Date.now().toString(36)}`;
     const profile = { id, name, ...this.rects, signature: null, logoSignature: null };
     const i = cfg.vision.profiles.findIndex((p) => p.id === id);
@@ -197,7 +198,7 @@ export class Calibration {
     await this.saveConfig(cfg);
     this.onSaved(profile);
     this.close();
-    this.toast(`Profil « ${name} » enregistré. La référence du tableau${this.rects.logo ? ' et du logo' : ''} est apprise sur l'image actuelle.`);
+    this.toast(this.rects.logo ? t("Profil « {name} » enregistré. La référence du tableau et du logo est apprise sur l'image actuelle.", { name }) : t("Profil « {name} » enregistré. La référence du tableau est apprise sur l'image actuelle.", { name }));
   }
 
   #onClick(e) {

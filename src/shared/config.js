@@ -1,3 +1,5 @@
+import { decimal } from './i18n.js';
+
 // Configuration par défaut + fusion avec la config utilisateur.
 // Tout ce qui est réglable dans l'app vit ici (le panneau Réglages est généré à partir de SETTINGS_SCHEMA).
 
@@ -124,6 +126,8 @@ export function mergeConfig(defaults, user) {
   for (const [k, dv] of Object.entries(defaults)) {
     const uv = user[k];
     if (uv === undefined) out[k] = structuredClone(dv);
+    // Objet vide par défaut (sons par équipe…) : dictionnaire libre, gardé tel quel
+    else if (isPlainObject(dv) && !Object.keys(dv).length) out[k] = isPlainObject(uv) ? structuredClone(uv) : {};
     else if (isPlainObject(dv)) out[k] = mergeConfig(dv, uv);
     else if (Array.isArray(dv)) out[k] = Array.isArray(uv) ? structuredClone(uv) : structuredClone(dv);
     else if (dv === null || typeof uv === typeof dv) out[k] = uv;
@@ -298,7 +302,7 @@ export const SETTINGS_SECTIONS = [
         items: [
           { path: 'audio.adDuckDb', type: 'range', min: -60, max: 0, step: 1, format: db, label: 'Baisse du son', help: 'De combien le son descend pendant une pause publicitaire. −24 dB : on entend encore, en fond.' },
           { path: 'audio.adMute', type: 'bool', label: 'Couper complètement', help: 'Silence total pendant les pubs au lieu d\'une simple baisse.' },
-          { path: 'audio.rampMs', type: 'range', min: 100, max: 3000, step: 100, format: (v) => `${(v / 1000).toFixed(1)} s`, label: 'Durée du fondu', help: 'Le son baisse et remonte en douceur sur cette durée.' },
+          { path: 'audio.rampMs', type: 'range', min: 100, max: 3000, step: 100, format: (v) => `${decimal(v / 1000, 1)} s`, label: 'Durée du fondu', help: 'Le son baisse et remonte en douceur sur cette durée.' },
         ],
       },
       {

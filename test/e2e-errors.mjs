@@ -36,6 +36,7 @@ fs.writeFileSync(
   JSON.stringify({
     team: 'BOS',
     onboarded: true,
+    ui: { language: 'fr' },
     stream: {
       homeUrl: `${base}/empty.html`,
       adblock: false,

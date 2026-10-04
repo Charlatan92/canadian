@@ -1,12 +1,12 @@
 # Rondelle
 
 **La régie télé de vos matchs de hockey.** Rondelle ajoute par-dessus votre match des graphiques
-façon télé (et façon FIFA) aux couleurs de votre équipe : joueur à la rondelle, célébration des buts
-avec klaxon, stats pendant les pubs, son baissé pendant les pauses. Elle marche avec les 32 équipes
-de la LNH, que vous regardiez avec votre abonnement télé (RDS, TVA Sports, Sportsnet, TSN…) ou sur
-un site web.
+façon télé (et façon jeu vidéo) aux couleurs de votre équipe : fil des actions, célébration des buts
+avec le klaxon de l'équipe, prison des pénalités, stats pendant les pubs, son baissé pendant les
+pauses. Elle marche avec les 32 équipes de la LNH, que vous regardiez avec votre abonnement télé (RDS,
+TVA Sports, Sportsnet, TSN…) ou sur un site web. Interface en français ou en anglais.
 
-![Rondelle en plein match : carte du joueur à la rondelle, aux couleurs de l'équipe](docs/principal.jpg)
+![Rondelle en plein match : fil des actions en haut à droite, aux couleurs de l'équipe](docs/principal.jpg)
 
 > Application indépendante, non affiliée à la LNH ni à ses équipes. Rondelle ne fournit aucun flux
 > vidéo : elle se pose sur ce que vous regardez.
@@ -18,7 +18,7 @@ un site web.
 - [Installation](#installation)
 - [Premier match](#premier-match)
 - [Votre équipe, ses couleurs, ses joueurs](#votre-équipe-ses-couleurs-ses-joueurs)
-- [Qui a la rondelle ?](#qui-a-la-rondelle-)
+- [Klaxons et chansons de but](#klaxons-et-chansons-de-but)
 - [Le stream ne se lance pas](#le-stream-ne-se-lance-pas)
 - [Raccourcis](#raccourcis)
 - [Confidentialité](#confidentialité)
@@ -35,27 +35,32 @@ un site web.
 
 Vous choisissez à l'accueil, et pouvez changer à tout moment (Réglages › Général).
 
-![Panneau de contrôle de la surcouche : match, ce que la régie voit, image, synchro, voix, son](docs/surcouche.jpg)
+![Panneau de contrôle de la surcouche : match, ce que la régie voit, image, synchro, son](docs/surcouche.jpg)
 
 ## Ce que fait la régie
 
 | | |
 |---|---|
-| **Joueur à la rondelle** | En bas à droite, façon FIFA : en carte (photo, numéro, stats du match), en nom seul, ou en **tête émoji**. Le joueur est reconnu par la voix du commentateur et par les actions de la LNH. |
-| **Buts de votre équipe** | « BUT ! » plein écran aux couleurs de l'équipe, carte du marqueur (son 12e but de la saison, aides), confettis et klaxon (synthétisé, ou votre propre fichier). |
+| **Fil des actions** | En haut à droite, petit et discret comme le fil des éliminations d'un jeu vidéo : tirs, tirs ratés, mises en jeu, mises en échec, tirs bloqués, revirements. Joueurs en photo, en nom seul ou en **tête émoji** ; toutes les actions ou celles de votre équipe seulement. |
+| **Buts de votre équipe** | « BUT ! » plein écran aux couleurs de l'équipe, carte du marqueur (son 12e but de la saison, aides), confettis, **klaxon et chanson de l'équipe**. |
+| **Buts adverses** | La même mise en scène, mais triste : image qui se ternit, pluie, « BUT » qui s'effondre et trombone désolé (ou un simple bandeau, ou rien : Réglages › Graphiques). |
+| **Pénalités** | Les barreaux de la **prison** tombent sur le joueur puni (« Au cachot ! »), puis une petite cellule reste en coin avec le temps de punition qui défile ; libéré plus tôt si l'adversaire marque en avantage numérique. |
 | **Action serrée** | Les bords de l'image prennent la couleur de l'équipe et battent comme un cœur ; le son monte un peu (lecteur intégré). |
-| **Pauses publicitaires** | Pendant les **vraies pubs** seulement, le son baisse et une « émission » recouvre la pub : le match en chiffres, **le but à la loupe** (type de tir, distance, avantage numérique, la phrase du commentateur), joueurs du match des **deux équipes**, « Le saviez-vous ? », duel des meneurs, **revue de presse** d'avant-match, face-à-face de la saison, carte des tirs, momentum, gardiens… |
-| **Ralentis et analyses de la chaîne** | Le tableau de score disparaît aussi pendant les reprises, les analyses et l'entracte : la régie les reconnaît (logo de la chaîne, glace à l'écran, pause télé annoncée par la LNH) et vous laisse les regarder, sans rien par-dessus. |
-| **Zéro divulgâcheur** | Les streams ont 20 secondes à 2 minutes de retard. La régie lit l'horloge du tableau de score à l'écran et ne montre une action que quand votre image l'atteint. Les fiches des joueurs sont ramenées à « avant ce match » et la revue de presse s'arrête à la mise en jeu. |
-| **Buts adverses, pénalités** | Bandeau discret aux couleurs de l'adversaire. |
+| **Pauses publicitaires** | Pendant les **vraies pubs** seulement, le son baisse et une « émission » recouvre la pub : le match en chiffres, **le but à la loupe** (type de tir, distance, avantage numérique), les **deux équipes face à face**, chacune de son côté (joueurs du match, meneurs, gardiens, « Le saviez-vous ? »), **revue de presse** d'avant-match, face-à-face de la saison, carte des tirs, momentum… |
+| **Ralentis et analyses de la chaîne** | Le tableau de score disparaît aussi pendant les reprises, les analyses et l'entracte : la régie les reconnaît (logo de la chaîne, allure de l'image, pause télé annoncée par la LNH) et vous laisse les regarder, sans rien par-dessus. |
+| **Zéro divulgâcheur** | Les streams ont 20 secondes à 2 minutes de retard. La régie trouve toute seule le tableau de score et son horloge, les lit et ne montre une action que quand votre image l'atteint. Les fiches des joueurs sont ramenées à « avant ce match » et la revue de presse s'arrête à la mise en jeu. |
 
 | Les couleurs changent avec l'équipe suivie | L'émission des pauses |
 |---|---|
 | ![Célébration d'un but : Canadiens à gauche, Maple Leafs à droite](docs/but-deux-equipes.jpg) | ![Pendant la pause : le match en chiffres](docs/pause.jpg) |
 
-| Le but à la loupe | Le saviez-vous ? |
+| But adverse | Pénalité : au cachot ! |
 |---|---|
-| ![Analyse d'un but : position du tir sur la patinoire, type de tir, distance, passeurs](docs/but-loupe.jpg) | ![Anecdotes sur un joueur : origine, repêchage, jalon à portée, forme récente](docs/saviez-vous.jpg) |
+| ![But adverse : image ternie, pluie, BUT qui s'effondre](docs/but-adverse.jpg) | ![Pénalité : le joueur derrière les barreaux, cellule avec le temps restant](docs/prison.jpg) |
+
+| Face à face | Le but à la loupe |
+|---|---|
+| ![Émission : les gardiens des deux équipes face à face](docs/face-a-face.jpg) | ![Analyse d'un but : position du tir sur la patinoire, type de tir, distance, passeurs](docs/but-loupe.jpg) |
 
 ## Installation
 
@@ -76,19 +81,24 @@ sont repris automatiquement.
 2. **Surcouche** : ouvrez le match chez votre diffuseur (bouton « Ouvrir RDS »…), connectez-vous,
    mettez la vidéo en plein écran sur l'écran choisi.
    **Lecteur intégré** : le meilleur stream démarre tout seul au début du match (français d'abord).
-3. **Pendant le jeu, calibrez une fois le tableau de score** du diffuseur (bouton Calibrer, ou `C`) :
-   « Détection auto » le trouve tout seul, puis encadrez l'horloge. C'est ce qui permet la détection
-   des pubs et la synchro sans divulgâcheur. Un profil est gardé par diffuseur (RDS, TVA Sports…).
-   Si la chaîne garde son **logo** dans un coin de l'image, encadrez-le aussi (étape 5) : c'est
-   l'indice le plus sûr pour distinguer une vraie pub d'un ralenti ou d'une analyse de la chaîne.
+3. **Le tableau de score se trouve tout seul** : pendant le jeu, la régie repère le tableau du
+   diffuseur et son horloge (les chiffres qui changent chaque seconde), vérifie qu'elle arrive à lire
+   le temps, puis s'en sert pour détecter les pubs et se synchroniser sans divulgâcheur. Un profil est
+   gardé par diffuseur (RDS, TVA Sports…). Pour ajuster, ou si la chaîne garde son **logo** dans un
+   coin de l'image (l'indice le plus sûr pour distinguer une vraie pub d'un ralenti), calibrez à la
+   main : bouton Calibrer, ou `C`.
 4. **Plein écran** : le bouton plein écran du lecteur (ou `F`) met **le lecteur** en plein écran,
    pas la fenêtre avec le lecteur tout petit dedans ; les graphiques restent par-dessus.
 
 ![Calibration : détection automatique du tableau de score](docs/calibration.jpg)
 
 Chaque réglage est expliqué dans une **bulle (i)** au survol. Les réglages sont rangés en rubriques :
-Général, Lecteur intégré, Surcouche TV, Son, Graphiques, Pauses pub, Voix du commentateur, Synchro &
-tableau, Effectifs & émojis, Raccourcis, Avancé, À propos.
+Général, Lecteur intégré, Surcouche TV, Son, Graphiques, Pauses pub, Synchro & tableau, Effectifs &
+émojis, Raccourcis, Avancé, À propos.
+
+- **Langue** (Général) : automatique (celle de Windows), français ou anglais.
+- **Exporter / importer les réglages** (Avancé) : un fichier `.json` à garder ou à copier sur un autre
+  PC (équipe, tableaux calibrés, streams ajoutés, sons d'équipe…).
 
 ![Réglages : rubriques à gauche, bulle d'aide sur chaque réglage](docs/reglages.jpg)
 
@@ -108,24 +118,25 @@ tableau, Effectifs & émojis, Raccourcis, Avancé, À propos.
   PNG transparents dans `Images\Rondelle\Têtes <équipe> 2026-27\`. Un joueur sans photo reçoit un casque
   aux couleurs de son équipe.
 
-| Nom seulement | Tête émoji |
+| Fil des actions : nom seulement | Fil des actions : têtes émoji |
 |---|---|
-| ![Plaque façon FIFA](docs/style-nom.jpg) | ![Tête émoji avec le numéro (portrait de test)](docs/style-emoji.jpg) |
+| ![Fil des actions avec les noms des joueurs](docs/fil-noms.jpg) | ![Fil des actions avec les têtes émoji (portraits de test)](docs/fil-emoji.jpg) |
 
-## Qui a la rondelle ?
+## Klaxons et chansons de but
 
-![La voix du commentateur a nommé Suzuki : carte « À la rondelle »](docs/voix-rondelle.jpg)
+![Réglages › Son : klaxon et chanson de but de l'équipe](docs/sons.jpg)
 
-Lire le numéro des chandails sur l'image n'est pas fiable (10 à 20 pixels sur un stream compressé, de
-dos, flou) et coûterait cher en calcul. L'API de la LNH est exacte mais ne donne qu'une action toutes
-les 10 à 20 secondes. Rondelle **écoute donc le commentateur**, en français ou en anglais : un modèle
-de reconnaissance vocale (Whisper) tourne sur votre ordinateur et repère les noms des joueurs des deux
-équipes (« Cofield », « Slafko », « Dash » pour Dach…). Les actions LNH restent prioritaires, la voix
-comble les trous.
-
-Le modèle se télécharge une seule fois au premier match (environ 80 Mo, 200 Mo avec la carte
-graphique ; « Rapide » : 40 Mo) puis tout fonctionne hors ligne. Le calcul se fait sur la carte
-graphique quand elle est disponible.
+- **Chaque équipe a son klaxon**, synthétisé par Rondelle : corne de navire, accord de locomotive,
+  klaxon de camion, corne de brume, grosse corne d'aréna ou sirène, chacun avec son accord et son
+  rythme (et un coup de canon pour Columbus).
+- **Les vrais klaxons et chansons de but ne sont pas inclus** : ce sont des enregistrements protégés
+  par le droit d'auteur. Dans Réglages › Son › Sons de l'équipe, importez-les pour n'importe quelle
+  équipe : « Fichier… » (mp3, ogg, wav, m4a…) ou « Lien… » (lien direct vers un fichier audio).
+  « Chercher » ouvre une recherche dans votre navigateur pour trouver le son.
+- Pour une chanson, Rondelle garde **l'extrait de 15 secondes le plus connu** : le refrain, c'est-à-dire
+  le passage le plus fort et le plus rythmé, hors intro et fin en fondu. Vous pouvez déplacer le début
+  de l'extrait. Pour un klaxon, la lecture part de la première attaque.
+- Les sons sont copiés dans le dossier de Rondelle : rien ne casse si le fichier d'origine est déplacé.
 
 ## Le stream ne se lance pas
 
@@ -160,12 +171,12 @@ Rondelle.
 
 ## Confidentialité
 
-- Reconnaissance vocale, analyse de l'image et têtes émoji fonctionnent **sur votre ordinateur** :
-  aucune image ni aucun son n'est envoyé.
+- Analyse de l'image et du son, lecture de l'horloge et têtes émoji fonctionnent **sur votre
+  ordinateur** : aucune image ni aucun son n'est envoyé.
 - Rondelle contacte seulement : l'API publique de la LNH (`api-web.nhle.com`, photos et logos sur
   `assets.nhle.com`), Google Actualités pendant les pauses pour la revue de presse (titres seulement ;
-  désactivable dans Réglages › Pauses pub), Hugging Face une fois pour le modèle vocal, GitHub une fois
-  par jour pour les mises à jour, et bien sûr le site que vous regardez.
+  désactivable dans Réglages › Pauses pub), GitHub une fois par jour pour les mises à jour, les liens
+  de sons que vous collez vous-même, et bien sûr le site que vous regardez.
 - Réglages et journal : `%APPDATA%\Rondelle` (Réglages › Avancé › Dossier des données).
 
 ## Pour les développeurs
@@ -173,7 +184,7 @@ Rondelle.
 Il faut [Node.js](https://nodejs.org) 22 ou plus.
 
 ```bash
-npm install                 # installe et copie dans vendor/ le moteur vocal, les polices, les icônes
+npm install                 # installe et copie dans vendor/ les polices et les icônes
 npm start                   # l'application
 npm run start:demo          # démo du lecteur intégré (faux match, sans internet)
 npm run start:overlay-demo  # démo de la surcouche (faux « navigateur » plein écran dessous)
@@ -189,27 +200,33 @@ src/main/        process Electron : fenêtres, session du stream (bloqueur, pop-
                  (overlay.js), volume Windows (systemAudio.js), réglages, mises à jour
 src/agent/       injecté dans chaque frame du lecteur intégré : vidéo, son, vignettes, erreurs
 src/renderer/    interface : app.js (fenêtre principale), overlayApp.js (fenêtre de surcouche),
-                 director.js (la régie), capture/ (écran capturé), ui/ (réglages, accueil,
-                 effectifs, bulles), voice/ (Whisper), styles.css (charte et jetons)
-src/shared/      logique pure et testée : synchro, pubs (vraies pubs / ralentis), tension, stats,
-                 analyses et anecdotes (insights.js), équipes et thèmes, streams, erreurs de
-                 lecture, noms des joueurs, têtes émoji
+                 director.js (la régie), autoCalibrate.js (tableau trouvé tout seul), capture/
+                 (écran capturé), ui/ (accueil, effectifs, bulles), horn.js (klaxons),
+                 styles.css (charte et jetons)
+src/shared/      logique pure et testée : synchro, pubs (vraies pubs / ralentis), vision, tension,
+                 stats, analyses et anecdotes (insights.js), équipes et thèmes, klaxons (horns.js),
+                 streams, erreurs de lecture, langue (i18n.js, traductions dans i18n-en.js)
 ```
 
 Tests :
 
 ```bash
-npm test                     # logique (44 tests)
+npm test                     # logique (48 tests, dont les traductions)
 xvfb-run -a npm run test:e2e # bout en bout (sous Windows : npm run test:e2e)
 ```
 
-Les tests de bout en bout lancent la vraie application : régie en démo (pubs, et ralentis qui n'en
-sont pas, avec ou sans logo de chaîne : `NOLOGO=1`), interface (réglages, bulles, changement d'équipe,
+Les tests de bout en bout lancent la vraie application : régie en démo (pubs, pub blanche, et ralentis
+qui n'en sont pas, avec ou sans logo de chaîne : `NOLOGO=1` ; fil des actions, prison, but adverse),
+**buts à l'heure** (célébration et but adverse au moment où l'image les montre, stream de 90 s de
+retard calibré ou non, stream en avance sur l'API), interface (réglages, bulles, changement d'équipe,
 accueil, calibration), surcouche (fenêtre transparente, capture, commandes du panneau), lecteurs
 pièges, plein écran d'un lecteur imbriqué dans des iframes de trois domaines, erreurs HLS (403, page
-web au lieu du flux), têtes émoji, voix (faux modèle Whisper minuscule), émission des pauses (toutes
-les séquences, aucun article d'après la mise en jeu). La CI Windows vérifie aussi que l'assistant de volume compile.
+web au lieu du flux), têtes émoji, émission des pauses (toutes les séquences, aucun article d'après la
+mise en jeu), export / import des réglages et sons d'équipe (fichier, lien direct, extrait de 15 s).
+La CI Windows vérifie aussi que l'assistant de volume compile.
+
+Traductions : le français est la langue source ; `npm run i18n` liste les textes de l'interface qui
+n'ont pas encore de traduction anglaise (`src/shared/i18n-en.js`).
 
 Licence MIT (voir `LICENSE`). Composants : Electron (MIT), Ghostery Adblocker (MPL-2.0), Tesseract.js
-(Apache-2.0), Transformers.js (Apache-2.0), ONNX Runtime Web (MIT), modèles Whisper (MIT), polices
-Inter et Barlow Condensed (OFL), icônes Lucide (ISC).
+(Apache-2.0), polices Inter et Barlow Condensed (OFL), icônes Lucide (ISC).

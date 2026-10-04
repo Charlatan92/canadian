@@ -35,6 +35,7 @@ fs.writeFileSync(
   JSON.stringify({
     team: 'MTL',
     onboarded: true,
+    ui: { language: 'fr' },
     stream: { homeUrl: `http://localhost:${port}/empty.html`, adblock: false, autoStart: false, theatreMode: false, customStreams: [{ url: PAGE, label: 'Imbriqué', lang: 'fr' }] },
   }),
 );

@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n.js';
 import { teamKeywords } from '../shared/nhl.js';
 import { hostAllowed } from '../shared/navPolicy.js';
 import { describePlayerError, nextRecoveryStep } from '../shared/streamErrors.js';
@@ -27,7 +28,7 @@ export class StreamManager extends Emitter {
     this.failedAt = new Map();
     this.startedAt = 0;
     this.errorSince = null;
-    this.health = { level: 'idle', reason: 'Aucun stream lancé' };
+    this.health = { level: 'idle', reason: t('Aucun stream lancé') };
     this.navigatingAt = 0;
     this.launchedBy = null; // 'app' (lancement auto, bascule) | 'user' (clic sur la page)
     this.playedOnce = false;
@@ -39,9 +40,9 @@ export class StreamManager extends Emitter {
     webview.addEventListener('did-navigate', (e) => this.#onNavigate(e.url));
     webview.addEventListener('did-fail-load', (e) => {
       if (!e.isMainFrame || e.errorCode === -3 || this.index < 0) return;
-      const reason = `page inaccessible (${e.errorDescription || e.errorCode})`;
+      const reason = t('page inaccessible ({err})', { err: e.errorDescription || e.errorCode });
       if (this.launchedBy === 'app' || this.playedOnce) this.fail(reason);
-      else this.toast(`Le stream ne répond pas : ${reason}`, { kind: 'bad' });
+      else this.toast(t('Le stream ne répond pas : {why}', { why: reason }), { kind: 'bad' });
     });
   }
 
@@ -75,7 +76,7 @@ export class StreamManager extends Emitter {
     this.index = -1;
     this.navigatingAt = Date.now();
     this.wv.loadURL(this.getConfig().stream.homeUrl);
-    this.#setHealth('idle', 'Page OnHockey.tv');
+    this.#setHealth('idle', t('Page OnHockey.tv'));
     this.emit('current', null);
   }
 
@@ -140,7 +141,7 @@ export class StreamManager extends Emitter {
     this.recovery = null;
     this.#resetPlayback('app');
     this.navigatingAt = Date.now();
-    this.#setHealth('warn', 'Chargement…');
+    this.#setHealth('warn', t('Chargement…'));
     this.wv.loadURL(s.url, { httpReferrer: this.getConfig().stream.homeUrl });
     this.emit('current', s);
     if (reason) this.toast(`${reason} → ${this.label(s)}`, { kind: 'warn' });
@@ -168,8 +169,8 @@ export class StreamManager extends Emitter {
     this.failedAt.set(s.url, Date.now());
     this.#setHealth('bad', reason);
     this.emit('failed', { stream: s, reason });
-    if (this.getConfig().stream.autoFailover) this.next(`Stream en panne (${reason})`);
-    else this.toast(`Stream en panne : ${reason}. Appuyez sur N pour changer.`, { kind: 'bad' });
+    if (this.getConfig().stream.autoFailover) this.next(t('Stream en panne ({why})', { why: reason }));
+    else this.toast(t('Stream en panne : {why}. Appuyez sur N pour changer.', { why: reason }), { kind: 'bad' });
   }
 
   // Recharge la page du stream (même référent) sans changer de stream
@@ -178,7 +179,7 @@ export class StreamManager extends Emitter {
     this.startedAt = Date.now();
     this.playedOnce = false;
     this.helpShown = false;
-    this.#setHealth('warn', 'Rechargement…');
+    this.#setHealth('warn', t('Rechargement…'));
     this.wv.reload();
   }
 
@@ -210,7 +211,7 @@ export class StreamManager extends Emitter {
     const step = nextRecoveryStep({ attempt, adblockActive, canSwitch });
     const explanation = describePlayerError(err.code);
     const media = this.recentMediaFailure(now);
-    this.#setHealth('bad', `Erreur du lecteur : ${explanation}`);
+    this.#setHealth('bad', t('Erreur du lecteur : {why}', { why: explanation }));
     if (step === 'adblock-off') this.recovery.adblockOff = host;
     const event = { ...err, attempt, step, host, explanation, media };
     this.emit('player-error', event);
@@ -263,16 +264,16 @@ export class StreamManager extends Emitter {
     if (!this.playedOnce) {
       if (since > 15 && !this.helpShown) {
         this.helpShown = true;
-        this.emit('stuck', { reason: v ? 'lecteur en pause' : 'aucune vidéo détectée', hasVideo: !!v });
+        this.emit('stuck', { reason: v ? t('lecteur en pause') : t('aucune vidéo détectée'), hasVideo: !!v });
       }
       // Seul un stream lancé par l'app, sans aucune vidéo au bout du délai, est jugé mort
-      if (!v && this.launchedBy === 'app' && since > cfg.noVideoSec * 1.5) return this.fail('aucune vidéo trouvée');
-      return this.#setHealth('warn', v ? (v.paused ? 'Cliquez sur ▶ dans le lecteur' : 'Chargement…') : 'Recherche de la vidéo…');
+      if (!v && this.launchedBy === 'app' && since > cfg.noVideoSec * 1.5) return this.fail(t('aucune vidéo trouvée'));
+      return this.#setHealth('warn', v ? (v.paused ? t('Cliquez sur ▶ dans le lecteur') : t('Chargement…')) : t('Recherche de la vidéo…'));
     }
 
     if (!v) {
-      if (statusAge > cfg.noVideoSec * 1000) this.fail('la vidéo a disparu');
-      else this.#setHealth('warn', 'Recherche de la vidéo…');
+      if (statusAge > cfg.noVideoSec * 1000) this.fail(t('la vidéo a disparu'));
+      else this.#setHealth('warn', t('Recherche de la vidéo…'));
       return;
     }
     if (v.error) {
@@ -281,10 +282,10 @@ export class StreamManager extends Emitter {
       return;
     }
     this.errorSince = null;
-    if (v.paused) return this.#setHealth('warn', 'En pause');
-    if (v.stuckSec >= cfg.stallSec) return this.fail('vidéo bloquée');
-    if (frozenSec >= cfg.frozenSec && !inBreak) return this.fail('image figée');
-    if (v.stuckSec > 3) return this.#setHealth('warn', 'Mise en mémoire tampon…');
-    this.#setHealth('ok', 'Lecture en cours');
+    if (v.paused) return this.#setHealth('warn', t('En pause'));
+    if (v.stuckSec >= cfg.stallSec) return this.fail(t('vidéo bloquée'));
+    if (frozenSec >= cfg.frozenSec && !inBreak) return this.fail(t('image figée'));
+    if (v.stuckSec > 3) return this.#setHealth('warn', t('Mise en mémoire tampon…'));
+    this.#setHealth('ok', t('Lecture en cours'));
   }
 }

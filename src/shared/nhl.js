@@ -1,3 +1,5 @@
+import { L, lang } from './i18n.js';
+
 // Lecture des données de l'API publique et gratuite de la LNH (api-web.nhle.com).
 // Tout est défensif : l'API n'est pas documentée officiellement et ses champs peuvent bouger.
 
@@ -46,13 +48,25 @@ export function teamKeywords(abbrev, extra = []) {
   return [...(TEAMS[abbrev]?.keywords ?? [String(abbrev || '').toLowerCase()]), ...extra.map((k) => String(k).toLowerCase())].filter(Boolean);
 }
 
-// Nom complet en français : « Canadiens de Montréal »
+// Villes et surnoms qui changent en anglais
+const CITY_EN = { Caroline: 'Carolina', Floride: 'Florida', Détroit: 'Detroit', Philadelphie: 'Philadelphia', Montréal: 'Montréal' };
+const NAME_EN = { Sénateurs: 'Senators' };
+
+// Nom complet : « Canadiens de Montréal » / « Montréal Canadiens »
 export function teamLabel(abbrev) {
-  return TEAMS[abbrev]?.label ?? abbrev;
+  const tm = TEAMS[abbrev];
+  if (!tm) return abbrev;
+  return lang() === 'en' ? `${CITY_EN[tm.city] ?? tm.city} ${NAME_EN[tm.name] ?? tm.name}` : tm.label;
 }
 
 export function teamName(abbrev) {
-  return TEAMS[abbrev]?.name ?? abbrev;
+  const name = TEAMS[abbrev]?.name;
+  return name ? (lang() === 'en' ? (NAME_EN[name] ?? name) : name) : abbrev;
+}
+
+const DIVISIONS_EN = { Atlantique: 'Atlantic', Métropolitaine: 'Metropolitan', Centrale: 'Central', Pacifique: 'Pacific' };
+export function divisionLabel(d) {
+  return lang() === 'en' ? (DIVISIONS_EN[d] ?? d) : d;
 }
 
 export function teamColor(abbrev) {
@@ -103,7 +117,11 @@ const PENALTIES_FR = {
 };
 
 export function penaltyLabel(descKey) {
-  if (!descKey) return 'Pénalité';
+  if (!descKey) return L('Pénalité', 'Penalty');
+  if (lang() === 'en') {
+    const s = descKey.replace(/-/g, ' ');
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
   return PENALTIES_FR[descKey] ?? descKey.replace(/-/g, ' ');
 }
 
@@ -154,6 +172,12 @@ export function periodFromGt(gt, gameType = 2) {
 }
 
 export function periodName(period, gameType = 2) {
+  if (lang() === 'en') {
+    if (period <= 3) return ['1st', '2nd', '3rd'][period - 1] ?? `${period}th`;
+    if (gameType !== 3 && period === 4) return 'OT';
+    if (gameType !== 3 && period >= 5) return 'SO';
+    return `${period - 3}OT`;
+  }
   if (period === 1) return '1re';
   if (period <= 3) return `${period}e`;
   if (gameType !== 3 && period === 4) return 'Prol.';

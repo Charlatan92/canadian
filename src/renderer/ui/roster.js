@@ -1,11 +1,12 @@
+import { N_, lang, t } from '../../shared/i18n.js';
 import { TEAMS, teamLabel } from '../../shared/nhl.js';
 import { headshotProxyUrl, seasonLabel } from '../emojiHeads.js';
 import { esc, icon, initials, teamLogoHtml } from '../util.js';
 
 const GROUPS = [
-  ['Attaquants', (p) => ['C', 'L', 'R'].includes(p.pos)],
-  ['Défenseurs', (p) => p.pos === 'D'],
-  ['Gardiens', (p) => p.pos === 'G'],
+  [N_('Attaquants'), (p) => ['C', 'L', 'R'].includes(p.pos)],
+  [N_('Défenseurs'), (p) => p.pos === 'D'],
+  [N_('Gardiens'), (p) => p.pos === 'G'],
 ];
 
 // Rubrique « Effectifs & émojis » : l'effectif actuel de n'importe quelle équipe (API LNH) et
@@ -76,29 +77,29 @@ export class RosterPanel {
     const logos = this.getConfig().ui.logos;
     const job = this.job;
     const options = Object.entries(TEAMS)
-      .sort((a, b) => a[1].label.localeCompare(b[1].label, 'fr'))
-      .map(([code, t]) => `<option value="${code}" ${code === this.team ? 'selected' : ''}>${esc(t.label)}</option>`)
+      .sort((a, b) => teamLabel(a[0]).localeCompare(teamLabel(b[0]), lang()))
+      .map(([code]) => `<option value="${code}" ${code === this.team ? 'selected' : ''}>${esc(teamLabel(code))}</option>`)
       .join('');
     const head = `<div class="roster-bar">
         ${teamLogoHtml(this.team, { logos })}
-        <select class="select" id="roster-team" aria-label="Équipe">${options}</select>
-        <span class="badge">Saison ${seasonLabel()}</span>
+        <select class="select" id="roster-team" aria-label="${t('Équipe')}">${options}</select>
+        <span class="badge">${t('Saison {s}', { s: seasonLabel() })}</span>
         <div class="spacer"></div>
-        <button class="btn btn-sm btn-primary" data-act="gen-team" ${job ? 'disabled' : ''}>${icon('wand-sparkles', 'ic-sm')}Créer les émojis de l'équipe</button>
-        <button class="btn btn-sm" data-act="gen-all" ${job ? 'disabled' : ''} data-tip="Environ 800 joueurs : comptez quelques minutes. Une tête à la fois, pour ne pas ralentir l'ordinateur.">Les 32 équipes</button>
-        <button class="icon-btn" data-act="open-folder" aria-label="Ouvrir le dossier" data-tip="Ouvrir le dossier des PNG (Images › Rondelle)">${icon('folder-open')}</button>
+        <button class="btn btn-sm btn-primary" data-act="gen-team" ${job ? 'disabled' : ''}>${icon('wand-sparkles', 'ic-sm')}${t("Créer les émojis de l'équipe")}</button>
+        <button class="btn btn-sm" data-act="gen-all" ${job ? 'disabled' : ''} data-tip="${t("Environ 800 joueurs : comptez quelques minutes. Une tête à la fois, pour ne pas ralentir l'ordinateur.")}">${t('Les 32 équipes')}</button>
+        <button class="icon-btn" data-act="open-folder" aria-label="${t('Ouvrir le dossier')}" data-tip="${t('Ouvrir le dossier des PNG (Images › Rondelle)')}">${icon('folder-open')}</button>
       </div>
       ${job ? `<div class="card" style="padding:12px 16px;margin-bottom:16px;display:grid;gap:8px">
-          <div style="display:flex;align-items:center;gap:8px">${icon('loader-circle', 'ic-sm')}<span class="grow">${esc(job.label)}</span><span class="muted num">${job.done}/${job.total}</span><button class="btn btn-sm btn-ghost" data-act="gen-stop">Annuler</button></div>
+          <div style="display:flex;align-items:center;gap:8px">${icon('loader-circle', 'ic-sm')}<span class="grow">${esc(job.label)}</span><span class="muted num">${job.done}/${job.total}</span><button class="btn btn-sm btn-ghost" data-act="gen-stop">${t('Annuler')}</button></div>
           <div class="progress"><i style="--p:${job.total ? Math.round((100 * job.done) / job.total) : 0}%"></i></div></div>` : ''}`;
     let body;
-    if (this.error) body = `<div class="empty">${icon('circle-alert', 'ic-sm')} Effectif indisponible : ${/net::|fetch|réseau|ENOTFOUND|TIMED_OUT/i.test(this.error) ? 'pas de connexion aux serveurs de la LNH' : esc(this.error)}. Réessayez dans un moment.</div>`;
-    else if (!this.players) body = '<div class="empty">Chargement de l\'effectif…</div>';
+    if (this.error) body = `<div class="empty">${icon('circle-alert', 'ic-sm')} ${t('Effectif indisponible : {why}. Réessayez dans un moment.', { why: /net::|fetch|réseau|ENOTFOUND|TIMED_OUT/i.test(this.error) ? t('pas de connexion aux serveurs de la LNH') : esc(this.error) })}</div>`;
+    else if (!this.players) body = `<div class="empty">${t("Chargement de l'effectif…")}</div>`;
     else
       body = GROUPS.map(([title, test]) => {
         const list = this.players.filter(test).sort((a, b) => (a.number ?? 99) - (b.number ?? 99));
         if (!list.length) return '';
-        return `<section class="roster-section"><h5>${title} · ${list.length}</h5><div class="roster-grid">${list.map((p) => this.#tile(p)).join('')}</div></section>`;
+        return `<section class="roster-section"><h5>${t(title)} · ${list.length}</h5><div class="roster-grid">${list.map((p) => this.#tile(p)).join('')}</div></section>`;
       }).join('');
     this.el.innerHTML = head + body;
   }
@@ -121,8 +122,8 @@ export class RosterPanel {
     try {
       for (let i = 0; i < teams.length; i++) {
         const team = teams[i];
-        const prefix = teams.length > 1 ? `Équipe ${i + 1}/${teams.length} · ` : '';
-        this.job.label = `${prefix}${teamLabel(team)} : création des têtes…`;
+        const prefix = teams.length > 1 ? `${t('Équipe {i}/{n}', { i: i + 1, n: teams.length })} · ` : '';
+        this.job.label = `${prefix}${t('{team} : création des têtes…', { team: teamLabel(team) })}`;
         this.render();
         const res = await this.heads.generateRoster({
           nhl: this.nhl,
@@ -141,13 +142,13 @@ export class RosterPanel {
         exported += res?.copied ?? 0;
         lastFolder = res?.folder ?? lastFolder;
       }
-      this.toast(`${exported} têtes émoji enregistrées${teams.length === 1 && lastFolder ? ` dans ${lastFolder}` : ' dans Images › Rondelle'}.`, {
+      this.toast(t('{n} têtes émoji enregistrées dans {where}.', { n: exported, where: teams.length === 1 && lastFolder ? lastFolder : t('Images › Rondelle') }), {
         kind: 'ok',
         ms: 9000,
-        actions: [{ label: 'Ouvrir le dossier', fn: () => window.rondelle.openHeadsFolder(teams.length === 1 ? lastFolder : null) }],
+        actions: [{ label: t('Ouvrir le dossier'), fn: () => window.rondelle.openHeadsFolder(teams.length === 1 ? lastFolder : null) }],
       });
     } catch (err) {
-      if (err.message !== 'annulé') this.toast(`Impossible de créer les têtes : ${err.message}`, { kind: 'bad', ms: 8000 });
+      if (err.message !== 'annulé') this.toast(t('Impossible de créer les têtes : {err}', { err: err.message }), { kind: 'bad', ms: 8000 });
     } finally {
       this.job = null;
       this.render();

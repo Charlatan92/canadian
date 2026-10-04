@@ -1,5 +1,6 @@
 import { goalAnalysis, playerFacts, pregameTotals, pressAbout, pressForShow, pressQuery, seasonSeries, timeAgo } from '../shared/insights.js';
 import { TEAMS, computeGameStats, formatClock, momentumSeries, periodName, periodStart, shotMap, teamLabel, topPerformers } from '../shared/nhl.js';
+import { N_, decimal, lang, locale, plural, t } from '../shared/i18n.js';
 import { matchupColors } from '../shared/theme.js';
 import { esc, initials, photoHtml } from './util.js';
 
@@ -36,7 +37,7 @@ export class AdShow {
     this.el.innerHTML = `
       <div class="as-head">
         <span class="as-live">Rondelle</span>
-        <div><div class="as-title">Pendant la pause</div><div class="as-sub">Analyse du match, calculée sur ce que vous avez déjà vu</div></div>
+        <div><div class="as-title">${t('Pendant la pause')}</div><div class="as-sub">${t('Analyse du match, calculée sur ce que vous avez déjà vu')}</div></div>
         <div class="as-score"></div>
       </div>
       <div class="as-scene"></div>
@@ -103,23 +104,23 @@ function sceneCompare({ game, stats }) {
   if (!a || !b || a.attempts + b.attempts < 3) return null;
   const pct = (w, l) => (w + l ? Math.round((100 * w) / (w + l)) : 0);
   const rows = [
-    ['Tirs au but', a.sog, b.sog],
-    ['Tentatives de tir', a.attempts, b.attempts],
-    ['Mises en jeu %', pct(a.fow, a.fol), pct(b.fow, b.fol)],
-    ['Mises en échec', a.hits, b.hits],
-    ['Tirs bloqués', a.blocks, b.blocks],
-    ['Récupérations', a.takeaways, b.takeaways],
-    ['Revirements', a.giveaways, b.giveaways],
-    ['Minutes de pénalité', a.pim, b.pim],
+    [t('Tirs au but'), a.sog, b.sog],
+    [t('Tentatives de tir'), a.attempts, b.attempts],
+    [t('Mises en jeu %'), pct(a.fow, a.fol), pct(b.fow, b.fol)],
+    [t('Mises en échec'), a.hits, b.hits],
+    [t('Tirs bloqués'), a.blocks, b.blocks],
+    [t('Récupérations'), a.takeaways, b.takeaways],
+    [t('Revirements'), a.giveaways, b.giveaways],
+    [t('Minutes de pénalité'), a.pim, b.pim],
   ];
   const lede =
     a.attempts > b.attempts * 1.25
-      ? `Les ${esc(game.team.name)} contrôlent le jeu : ${a.attempts} tentatives de tir contre ${b.attempts}.`
+      ? t('Les {team} contrôlent le jeu : {a} tentatives de tir contre {b}.', { team: esc(game.team.name), a: a.attempts, b: b.attempts })
       : b.attempts > a.attempts * 1.25
-        ? `Les ${esc(game.opp.name)} mettent de la pression : ${b.attempts} tentatives contre ${a.attempts}.`
-        : `Match serré : ${a.attempts} tentatives de tir de chaque côté ou presque.`;
+        ? t('Les {team} mettent de la pression : {a} tentatives contre {b}.', { team: esc(game.opp.name), a: b.attempts, b: a.attempts })
+        : t('Match serré : {a} tentatives de tir de chaque côté ou presque.', { a: a.attempts });
   return `
-    <h2>Le match en chiffres</h2>
+    <h2>${t('Le match en chiffres')}</h2>
     <p class="lede">${lede}</p>
     ${legend(game)}
     <div class="cmp">
@@ -167,11 +168,11 @@ function sceneShotMap({ game, gt }) {
   const count = (ours, kinds) => shots.filter((s) => s.ours === ours && kinds.includes(s.kind)).length;
   const inSlot = (ours) => shots.filter((s) => s.ours === ours && Math.hypot(89 - Math.abs(s.x), s.y) < 25).length;
   return `
-    <h2>Carte des tirs</h2>
-    <p class="lede">${esc(game.team.abbrev)} : ${count(true, ['sog', 'goal'])} tirs cadrés dont ${inSlot(true)} tentatives dans l'enclave ·
-      ${esc(game.opp.abbrev)} : ${count(false, ['sog', 'goal'])} tirs cadrés dont ${inSlot(false)} dans l'enclave.</p>
-    <div class="legend"><span><i style="background:${RED}"></i>${esc(game.team.abbrev)} attaque →</span><span><i style="background:${BLUE}"></i>← ${esc(game.opp.abbrev)} attaque</span>
-      <span>● cadré &nbsp; ○ raté / bloqué &nbsp; ◉ but</span></div>
+    <h2>${t('Carte des tirs')}</h2>
+    <p class="lede">${t("{team} : {n} tirs cadrés dont {slot} tentatives dans l'enclave", { team: esc(game.team.abbrev), n: count(true, ['sog', 'goal']), slot: inSlot(true) })} ·
+      ${t("{team} : {n} tirs cadrés dont {slot} dans l'enclave.", { team: esc(game.opp.abbrev), n: count(false, ['sog', 'goal']), slot: inSlot(false) })}</p>
+    <div class="legend"><span><i style="background:${RED}"></i>${t('{team} attaque →', { team: esc(game.team.abbrev) })}</span><span><i style="background:${BLUE}"></i>${t('← {team} attaque', { team: esc(game.opp.abbrev) })}</span>
+      <span>${t('● cadré &nbsp; ○ raté / bloqué &nbsp; ◉ but')}</span></div>
     <div class="svgbox">${rinkSvg(marks)}</div>`;
 }
 
@@ -195,8 +196,8 @@ function sceneMomentum({ game, gt }) {
   for (let p = 2; periodStart(p, game.gameType) < maxGt; p++) periods.push(periodStart(p, game.gameType));
   const goals = series.filter((p) => p.goal);
   return `
-    <h2>Le momentum</h2>
-    <p class="lede">Écart cumulé des tentatives de tir. Au-dessus de la ligne : ${esc(game.team.abbrev)} pousse. En dessous : ${esc(game.opp.abbrev)}.</p>
+    <h2>${t('Le momentum')}</h2>
+    <p class="lede">${t('Écart cumulé des tentatives de tir. Au-dessus de la ligne : {team} pousse. En dessous : {opp}.', { team: esc(game.team.abbrev), opp: esc(game.opp.abbrev) })}</p>
     ${legend(game)}
     <div class="svgbox"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Momentum">
       <defs>
@@ -210,8 +211,8 @@ function sceneMomentum({ game, gt }) {
       <path d="${d}" fill="none" stroke="#e8ecf3" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
       ${goals.map((p) => `<circle cx="${x(p.gt)}" cy="${y(p.diff)}" r="6" fill="${p.ours ? RED : BLUE}" stroke="#0f141c" stroke-width="2"/>`).join('')}
       <circle cx="${x(gt)}" cy="${y(last)}" r="5" fill="#e8ecf3" stroke="#0f141c" stroke-width="2"/>
-      <text x="${x(gt) + 10}" y="${y(last) + 5}" fill="#f2f4f8" font-size="16" font-weight="700">${last > 0 ? `+${last} ${esc(game.team.abbrev)}` : last < 0 ? `+${-last} ${esc(game.opp.abbrev)}` : 'Égalité'}</text>
-      ${[1, 2, 3].map((p) => (periodStart(p) < maxGt ? `<text x="${x(periodStart(p) + 600)}" y="${H - 8}" fill="#7d8899" font-size="13" text-anchor="middle">${periodName(p)} période</text>` : '')).join('')}
+      <text x="${x(gt) + 10}" y="${y(last) + 5}" fill="#f2f4f8" font-size="16" font-weight="700">${last > 0 ? `+${last} ${esc(game.team.abbrev)}` : last < 0 ? `+${-last} ${esc(game.opp.abbrev)}` : t('Égalité')}</text>
+      ${[1, 2, 3].map((p) => (periodStart(p) < maxGt ? `<text x="${x(periodStart(p) + 600)}" y="${H - 8}" fill="#7d8899" font-size="13" text-anchor="middle">${t('{p} période', { p: periodName(p) })}</text>` : '')).join('')}
       <text x="${pad.l - 8}" y="${y(maxAbs) + 4}" fill="#7d8899" font-size="12" text-anchor="end">+${maxAbs}</text>
       <text x="${pad.l - 8}" y="${y(-maxAbs) + 4}" fill="#7d8899" font-size="12" text-anchor="end">−${maxAbs}</text>
     </svg></div>`;
@@ -266,21 +267,21 @@ async function sceneStars({ game, stats }, sides) {
       title: club.name,
       sub: `#${p.number ?? ''} · ${p.first}`,
       body: `${miniTiles([
-        ['Buts', st.g],
-        ['Aides', st.a1 + st.a2],
-        ['Tirs', st.sog],
-        ['Mises en échec', st.hits],
-        ...(fo >= 4 ? [['Mises en jeu', `${Math.round((100 * st.fow) / fo)} %`]] : [['Tirs bloqués', st.blk]]),
-      ])}${season?.gamesPlayed ? `<div class="vs-foot">Saison avant ce match : ${season.goals ?? 0} B · ${season.assists ?? 0} A · ${season.points ?? 0} PTS en ${season.gamesPlayed} PJ</div>` : ''}`,
+        [t('Buts'), st.g],
+        [t('Aides'), st.a1 + st.a2],
+        [t('Tirs'), st.sog],
+        [t('Mises en échec'), st.hits],
+        ...(fo >= 4 ? [[t('Mises en jeu'), `${Math.round((100 * st.fow) / fo)} %`]] : [[t('Tirs bloqués'), st.blk]]),
+      ])}${season?.gamesPlayed ? `<div class="vs-foot">${t('Saison avant ce match : {g} B · {a} A · {p} PTS en {gp} PJ', { g: season.goals ?? 0, a: season.assists ?? 0, p: season.points ?? 0, gp: season.gamesPlayed })}</div>` : ''}`,
     });
   }
   if (!cards.team && !cards.opp) return null;
-  return `<h2>Les joueurs du match</h2><p class="lede">Le plus influent de chaque équipe jusqu'ici, selon l'indice d'impact de la régie.</p>
+  return `<h2>${t('Les joueurs du match')}</h2><p class="lede">${t("Le plus influent de chaque équipe jusqu'ici, selon l'indice d'impact de la régie.")}</p>
     ${versus(cards.team ?? emptyCard('team', game), sides.includes('opp') ? (cards.opp ?? emptyCard('opp', game)) : null)}`;
 }
 
 function emptyCard(side, game) {
-  return `<div class="vs-card vs-${side} vs-empty" style="--col:${sideColor(side)}"><span>${esc(clubOf(game, side).name)} : rien de marquant pour l'instant</span></div>`;
+  return `<div class="vs-card vs-${side} vs-empty" style="--col:${sideColor(side)}"><span>${esc(t("{team} : rien de marquant pour l'instant", { team: clubOf(game, side).name }))}</span></div>`;
 }
 
 // Duel : un des meilleurs pointeurs de chaque équipe, saisons comparées ligne par ligne
@@ -302,14 +303,14 @@ async function sceneDuel({ game }, sides) {
   const b = sides.includes('opp') ? await pick('opp') : null;
   if (!a) return null;
   const card = (x) =>
-    vsCard({ player: x.player, color: sideColor(x.side), side: x.side, title: x.side === 'team' ? 'Sous la loupe' : 'À surveiller', sub: `${clubOf(game, x.side).name} · saison avant ce match`, body: x.formN ? `<div class="vs-foot">${x.form} point${x.form > 1 ? 's' : ''} à ses ${x.formN} derniers matchs</div>` : '' });
+    vsCard({ player: x.player, color: sideColor(x.side), side: x.side, title: x.side === 'team' ? t('Sous la loupe') : t('À surveiller'), sub: `${clubOf(game, x.side).name} · ${t('saison avant ce match')}`, body: x.formN ? `<div class="vs-foot">${t(plural(x.form, N_('{n} point à ses {m} derniers matchs'), N_('{n} points à ses {m} derniers matchs')), { n: x.form, m: x.formN })}</div>` : '' });
   const rows = [
-    ['Buts', (x) => x.st.goals ?? 0],
-    ['Aides', (x) => x.st.assists ?? 0],
-    ['Points', (x) => x.st.points ?? 0],
-    ['Points / match', (x) => (x.st.gamesPlayed ? (x.st.points / x.st.gamesPlayed).toFixed(2).replace('.', ',') : '0')],
+    [t('Buts'), (x) => x.st.goals ?? 0],
+    [t('Aides'), (x) => x.st.assists ?? 0],
+    [t('Points'), (x) => x.st.points ?? 0],
+    [t('Points / match'), (x) => (x.st.gamesPlayed ? decimal(x.st.points / x.st.gamesPlayed) : '0')],
     ['+/-', (x) => `${(x.st.plusMinus ?? 0) > 0 ? '+' : ''}${x.st.plusMinus ?? 0}`],
-    ['Buts en avantage', (x) => x.st.powerPlayGoals ?? 0],
+    [t('Buts en avantage'), (x) => x.st.powerPlayGoals ?? 0],
   ];
   const middle = b
     ? `<div class="vs-rows">${rows
@@ -323,7 +324,7 @@ async function sceneDuel({ game }, sides) {
         })
         .join('')}</div>`
     : null;
-  return `<h2>Face à face</h2><p class="lede">Deux des meilleurs pointeurs de chaque équipe, saison avant ce match.</p>${versus(card(a), b ? card(b) : null, middle)}`;
+  return `<h2>${t('Face à face')}</h2><p class="lede">${t('Deux des meilleurs pointeurs de chaque équipe, saison avant ce match.')}</p>${versus(card(a), b ? card(b) : null, middle)}`;
 }
 
 async function sceneGoalies({ game, stats }, sides) {
@@ -342,16 +343,16 @@ async function sceneGoalies({ game, stats }, sides) {
       color: sideColor(side),
       side,
       title: clubOf(game, side).name,
-      sub: `#${p.number ?? ''} · gardien`,
+      sub: `#${p.number ?? ''} · ${t('gardien')}`,
       body: `${miniTiles([
-        ['Arrêts', g.sa - g.ga],
-        ['Tirs reçus', g.sa],
-        ['Efficacité', sv],
-      ])}${season ? `<div class="vs-foot">Saison : ${(season.savePercentage ?? 0).toFixed(3).replace(/^0/, '')} · ${(season.goalsAgainstAverage ?? 0).toFixed(2)} de moyenne</div>` : ''}`,
+        [t('Arrêts'), g.sa - g.ga],
+        [t('Tirs reçus'), g.sa],
+        [t('Efficacité'), sv],
+      ])}${season ? `<div class="vs-foot">${t('Saison : {sv} · {gaa} de moyenne', { sv: (season.savePercentage ?? 0).toFixed(3).replace(/^0/, ''), gaa: decimal(season.goalsAgainstAverage ?? 0) })}</div>` : ''}`,
     });
   }
   if (!cards.team && !cards.opp) return null;
-  return `<h2>Devant le filet</h2><p class="lede">Les gardiens jusqu'ici.</p>${versus(cards.team ?? emptyCard('team', game), sides.includes('opp') ? (cards.opp ?? emptyCard('opp', game)) : null)}`;
+  return `<h2>${t('Devant le filet')}</h2><p class="lede">${t("Les gardiens jusqu'ici.")}</p>${versus(cards.team ?? emptyCard('team', game), sides.includes('opp') ? (cards.opp ?? emptyCard('opp', game)) : null)}`;
 }
 
 function sceneGoals({ game, stats }) {
@@ -364,11 +365,11 @@ function sceneGoals({ game, stats }) {
     const a = goalAnalysis(game, p);
     return `<li><span class="when">${periodName(p.period, game.gameType)} · ${formatClock(p.tip)}</span>
       <span class="sw" style="background:${ours ? RED : BLUE}"></span>
-      <span><b>${esc(scorer?.name ?? 'But')}</b>${d.scoringPlayerTotal ? ` (${d.scoringPlayerTotal})` : ''} <span class="muted">${assists.length ? `aides : ${esc(assists.join(', '))}` : 'sans aide'}</span>
+      <span><b>${esc(scorer?.name ?? t('But'))}</b>${d.scoringPlayerTotal ? ` (${d.scoringPlayerTotal})` : ''} <span class="muted">${assists.length ? t('aides : {list}', { list: esc(assists.join(', ')) }) : t('sans aide')}</span>
         ${a?.chips.length ? `<span class="chips">${a.chips.map((c) => `<span class="chip">${esc(c)}</span>`).join('')}</span>` : ''}</span>
       <span>${esc(ours ? game.team.abbrev : game.opp.abbrev)}</span></li>`;
   });
-  return `<h2>Les buts</h2><p class="lede">Tous les buts vus jusqu'à maintenant.</p><ul class="goals-list">${items.join('')}</ul>`;
+  return `<h2>${t('Les buts')}</h2><p class="lede">${t("Tous les buts vus jusqu'à maintenant.")}</p><ul class="goals-list">${items.join('')}</ul>`;
 }
 
 // Le but à la loupe : position sur la patinoire et analyse façon commentateur
@@ -395,8 +396,8 @@ function sceneGoalStory({ game, stats }) {
     <div class="story">
       <div class="svgbox">${rinkSvg(mark, '-3 -44 105 88')}</div>
       <div>
-        <h2>Le but à la loupe</h2>
-        <p class="lede">${esc(periodName(goal.period, game.gameType))} période · ${formatClock(goal.tip)} · ${esc(a.team ?? '')}</p>
+        <h2>${t('Le but à la loupe')}</h2>
+        <p class="lede">${esc(goal.period <= 3 ? t('{p} période', { p: periodName(goal.period, game.gameType) }) : periodName(goal.period, game.gameType))} · ${formatClock(goal.tip)} · ${esc(a.team ?? '')}</p>
         <div class="story-who" style="--story-color:${color}">${scorer?.headshot ? photoHtml(scorer.headshot, initials(scorer)) : `<span class="num">${esc(scorer?.number ?? '')}</span>`}<b>${esc(a.title)}</b></div>
         <p class="story-text">${esc(a.text)}</p>
         ${a.chips.length ? `<div class="chips">${a.chips.map((c) => `<span class="chip">${esc(c)}</span>`).join('')}</div>` : ''}
@@ -410,7 +411,7 @@ async function sceneFacts({ game, stats }, sides) {
   if (!game) return null;
   const turn = this.factsIndex++;
   const cfg = this.getConfig();
-  const lang = cfg.stream.languagePriority?.[0] === 'en' ? 'en' : 'fr';
+  const nl = lang(); // langue de l'interface : titres de presse dans la même langue
   const before = game.startTimeUTC ? Date.parse(game.startTimeUTC) : null;
   const one = async (side) => {
     const club = clubOf(game, side);
@@ -424,9 +425,9 @@ async function sceneFacts({ game, stats }, sides) {
       // Ce que les médias en disaient avant le match (un titre qui le nomme)
       let quote = '';
       if (cfg.ads.press && before) {
-        const items = await withTimeout(this.nhl.news(pressQuery({ player: p.name, lang }), lang), 1500);
+        const items = await withTimeout(this.nhl.news(pressQuery({ player: p.name, lang: nl }), nl), 1500);
         const [it] = pressAbout(items, p.last, { before });
-        if (it) quote = `<blockquote class="quote">« ${esc(it.title)} »<cite>${esc(it.source ?? 'Presse')} · ${esc(timeAgo(it.published, before))} avant le match</cite></blockquote>`;
+        if (it) quote = `<blockquote class="quote">« ${esc(it.title)} »<cite>${esc(it.source ?? t('Presse'))} · ${esc(t('{ago} avant le match', { ago: timeAgo(it.published, before) }))}</cite></blockquote>`;
       }
       return vsCard({ player: p, color: sideColor(side), side, title: club.name, sub: `#${p.number ?? ''} · ${p.first}`, body: `<ul class="insights">${facts.slice(0, quote ? 3 : 4).map((t) => `<li>${esc(t)}</li>`).join('')}</ul>${quote}` });
     }
@@ -435,7 +436,7 @@ async function sceneFacts({ game, stats }, sides) {
   const left = await one('team');
   const right = sides.includes('opp') ? await one('opp') : null;
   if (!left && !right) return null;
-  return `<h2>Le saviez-vous ?</h2><p class="lede">Un joueur de chaque équipe, à connaître ce soir.</p>${versus(left ?? emptyCard('team', game), sides.includes('opp') ? (right ?? emptyCard('opp', game)) : null)}`;
+  return `<h2>${t('Le saviez-vous ?')}</h2><p class="lede">${t('Un joueur de chaque équipe, à connaître ce soir.')}</p>${versus(left ?? emptyCard('team', game), sides.includes('opp') ? (right ?? emptyCard('opp', game)) : null)}`;
 }
 
 // Les meneurs des deux équipes, saison avant ce match + ce qu'ils ont fait ce soir (déjà vu)
@@ -452,27 +453,27 @@ async function sceneLeaders({ game, stats }) {
         const s = pre?.gamesPlayed ? pre : line;
         const tonight = stats?.players.get(line.playerId);
         const tn = tonight ? [tonight.g && `${tonight.g} B`, tonight.a1 + tonight.a2 && `${tonight.a1 + tonight.a2} A`, tonight.sog && `${tonight.sog} tir${tonight.sog > 1 ? 's' : ''}`].filter(Boolean).join(' · ') : '';
-        return `<li><b>${esc(line.lastName?.default ?? '')}</b><span class="num">${s.goals ?? 0}-${s.assists ?? 0}-<b>${s.points ?? 0}</b></span><span class="muted">${tn ? `Ce soir : ${esc(tn)}` : 'Ce soir : —'}</span></li>`;
+        return `<li><b>${esc(line.lastName?.default ?? '')}</b><span class="num">${s.goals ?? 0}-${s.assists ?? 0}-<b>${s.points ?? 0}</b></span><span class="muted">${t('Ce soir : {x}', { x: tn ? esc(tn) : '—' })}</span></li>`;
       }),
     );
     if (rows.length) cols.push(`<div class="leaders-col" style="--col:${color}"><h3>${esc(club.name)}</h3><ul>${rows.join('')}</ul></div>`);
   }
   if (cols.length < 2) return null;
-  return `<h2>Duel des meneurs</h2><p class="lede">Buts-aides-points cette saison, avant ce match, et ce qu'ils ont fait ce soir jusqu'ici.</p><div class="leaders">${cols.join('')}</div>`;
+  return `<h2>${t('Duel des meneurs')}</h2><p class="lede">${t("Buts-aides-points cette saison, avant ce match, et ce qu'ils ont fait ce soir jusqu'ici.")}</p><div class="leaders">${cols.join('')}</div>`;
 }
 
 // Revue de presse : les titres des médias avant la mise en jeu (rien sur le match en cours)
 async function scenePress({ game }) {
   if (!game?.startTimeUTC) return null;
   const cfg = this.getConfig();
-  const lang = cfg.stream.languagePriority?.[0] === 'en' ? 'en' : 'fr';
-  const query = (abbrev) => pressQuery({ name: TEAMS[abbrev]?.name ?? abbrev, city: TEAMS[abbrev]?.city ?? '', lang });
+  const nl = lang(); // langue de l'interface : titres de presse dans la même langue
+  const query = (abbrev) => pressQuery({ name: TEAMS[abbrev]?.name ?? abbrev, city: TEAMS[abbrev]?.city ?? '', lang: nl });
   const before = Date.parse(game.startTimeUTC);
-  const [a, b] = await Promise.all([withTimeout(this.nhl.news(query(game.team.abbrev), lang), 2500), withTimeout(this.nhl.news(query(game.opp.abbrev), lang), 2500)]);
+  const [a, b] = await Promise.all([withTimeout(this.nhl.news(query(game.team.abbrev), nl), 2500), withTimeout(this.nhl.news(query(game.opp.abbrev), nl), 2500)]);
   const items = pressForShow([...(a ?? []), ...(b ?? [])], { before, max: 5 });
   if (items.length < 2) return null;
-  return `<h2>Revue de presse</h2><p class="lede">Ce que les médias disaient avant la mise en jeu. Titres publiés avant le match : aucun résultat de ce soir.</p>
-    <ul class="press">${items.map((it) => `<li><span class="src">${esc(it.source ?? 'Presse')}</span><span class="ttl">« ${esc(it.title)} »</span><span class="muted">${esc(timeAgo(it.published, before))} avant le match</span></li>`).join('')}</ul>`;
+  return `<h2>${t('Revue de presse')}</h2><p class="lede">${t('Ce que les médias disaient avant la mise en jeu. Titres publiés avant le match : aucun résultat de ce soir.')}</p>
+    <ul class="press">${items.map((it) => `<li><span class="src">${esc(it.source ?? t('Presse'))}</span><span class="ttl">« ${esc(it.title)} »</span><span class="muted">${esc(t('{ago} avant le match', { ago: timeAgo(it.published, before) }))}</span></li>`).join('')}</ul>`;
 }
 
 // Face-à-face : les matchs déjà joués entre les deux équipes cette saison
@@ -488,17 +489,17 @@ async function sceneSeries({ game }) {
     const theirs = teamHome ? g.awayScore : g.homeScore;
     const won = mine > theirs;
     if (won) wins++;
-    const date = g.date ? new Date(`${g.date}T12:00:00Z`).toLocaleDateString('fr-CA', { day: 'numeric', month: 'long' }) : '';
+    const date = g.date ? new Date(`${g.date}T12:00:00Z`).toLocaleDateString(locale(), { day: 'numeric', month: 'long' }) : '';
     return `<li><span class="when">${esc(date)}</span><span class="sw" style="background:${won ? RED : BLUE}"></span>
-      <span><b>${esc(g.away)} ${g.awayScore ?? '–'}</b> à <b>${esc(g.home)} ${g.homeScore ?? '–'}</b>${g.lastPeriod && g.lastPeriod !== 'REG' ? ` <span class="muted">(${g.lastPeriod === 'OT' ? 'prolongation' : 'tirs de barrage'})</span>` : ''}</span>
-      <span>${won ? 'Victoire' : 'Défaite'}</span></li>`;
+      <span><b>${esc(g.away)} ${g.awayScore ?? '–'}</b> ${t('à')} <b>${esc(g.home)} ${g.homeScore ?? '–'}</b>${g.lastPeriod && g.lastPeriod !== 'REG' ? ` <span class="muted">(${g.lastPeriod === 'OT' ? t('prolongation') : t('tirs de barrage')})</span>` : ''}</span>
+      <span>${won ? t('Victoire') : t('Défaite')}</span></li>`;
   });
-  return `<h2>Face-à-face cette saison</h2><p class="lede">${esc(game.team.name)} : ${wins} victoire${wins > 1 ? 's' : ''} en ${list.length} match${list.length > 1 ? 's' : ''} contre les ${esc(game.opp.name)} avant ce soir.</p><ul class="goals-list">${rows.join('')}</ul>`;
+  return `<h2>${t('Face-à-face cette saison')}</h2><p class="lede">${esc(t(plural(wins, N_('{team} : {w} victoire en {n} match(s) contre les {opp} avant ce soir.'), N_('{team} : {w} victoires en {n} match(s) contre les {opp} avant ce soir.')), { team: game.team.name, w: wins, n: list.length, opp: game.opp.name }))}</p><ul class="goals-list">${rows.join('')}</ul>`;
 }
 
 function sceneIdle({ game }) {
-  return `<h2>Pause publicitaire</h2><p class="lede">${
-    game ? `${esc(game.team.name)} contre ${esc(game.opp.name)} — on revient au match dès la fin de la pause.` : 'Retour au match dans un instant.'
+  return `<h2>${t('Pause publicitaire')}</h2><p class="lede">${
+    game ? esc(t('{team} contre {opp} — on revient au match dès la fin de la pause.', { team: game.team.name, opp: game.opp.name })) : t('Retour au match dans un instant.')
   }</p>`;
 }
 

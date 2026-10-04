@@ -1,5 +1,6 @@
 import { providerOf } from '../../shared/providers.js';
 import { iceFractionRGBA, lookFeatures } from '../../shared/adDetector.js';
+import { t } from '../../shared/i18n.js';
 import { Emitter } from '../util.js';
 
 // Mode surcouche : la vidéo joue dans le navigateur (ou l'appli du fournisseur télé) et Rondelle
@@ -216,7 +217,7 @@ export class ScreenBridge extends Emitter {
 
   async snapshot(maxWidth = 1280) {
     const v = this.video;
-    if (!v?.videoWidth) throw new Error("pas d'image de l'écran");
+    if (!v?.videoWidth) throw new Error(t("pas d'image de l'écran"));
     const w = Math.min(maxWidth, v.videoWidth);
     const h = Math.round((w * v.videoHeight) / v.videoWidth);
     const c = new OffscreenCanvas(w, h);
@@ -243,7 +244,7 @@ export class ScreenStreams extends Emitter {
     this.index = 0;
     this.playedOnce = false;
     this.launchedBy = 'user';
-    this.health = { level: 'warn', reason: "Démarrage de la capture de l'écran…" };
+    this.health = { level: 'warn', reason: t("Démarrage de la capture de l'écran…") };
     this.mediaFailures = [];
     this.recovery = null;
   }
@@ -287,12 +288,12 @@ export class ScreenStreams extends Emitter {
 
   evaluate(now) {
     const b = this.bridge;
-    if (!b.capturing) return this.#set('bad', "Capture de l'écran arrêtée");
-    if (b.blackSince && now - b.blackSince > 8000) return this.#set('warn', 'Image noire : la vidéo est-elle en plein écran sur cet écran ?');
+    if (!b.capturing) return this.#set('bad', t("Capture de l'écran arrêtée"));
+    if (b.blackSince && now - b.blackSince > 8000) return this.#set('warn', t('Image noire : la vidéo est-elle en plein écran sur cet écran ?'));
     if (b.luma != null && !this.playedOnce) {
       this.playedOnce = true;
       this.emit('playing', this.current);
     }
-    this.#set('ok', b.hasAudio ? "Capture de l'écran et du son" : "Capture de l'écran (son non capturé)");
+    this.#set('ok', b.hasAudio ? t("Capture de l'écran et du son") : t("Capture de l'écran (son non capturé)"));
   }
 }

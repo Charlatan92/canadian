@@ -1,5 +1,6 @@
 import { onColor } from '../shared/color.js';
 import { formatClock, penaltyLabel, periodName, teamColor } from '../shared/nhl.js';
+import { N_, t } from '../shared/i18n.js';
 import { teamTheme } from '../shared/theme.js';
 import { $, esc, icon, initials, ordinalFr, photoHtml, teamLogoHtml } from './util.js';
 
@@ -8,13 +9,13 @@ import { $, esc, icon, initials, ordinalFr, photoHtml, teamLogoHtml } from './ut
 // Une ligne par action, en petit, comme le fil des éliminations d'un jeu vidéo :
 // [tête] Caufield  (icône) tir  Woll
 const FEED = {
-  faceoff: { icon: 'arrow-left-right', verb: 'mise en jeu', actor: 'winningPlayerId', target: 'losingPlayerId' },
-  'shot-on-goal': { icon: 'target', verb: 'tir', actor: 'shootingPlayerId', target: 'goalieInNetId' },
-  'missed-shot': { icon: 'move-up-right', verb: 'tir raté', actor: 'shootingPlayerId' },
-  'blocked-shot': { icon: 'shield', verb: 'bloque', actor: 'blockingPlayerId', target: 'shootingPlayerId' },
-  hit: { icon: 'zap', verb: 'mise en échec', actor: 'hittingPlayerId', target: 'hitteePlayerId' },
-  takeaway: { icon: 'hand-grab', verb: 'vole la rondelle', actor: 'playerId' },
-  giveaway: { icon: 'circle-slash', verb: 'perd la rondelle', actor: 'playerId' },
+  faceoff: { icon: 'arrow-left-right', verb: N_('mise en jeu'), actor: 'winningPlayerId', target: 'losingPlayerId' },
+  'shot-on-goal': { icon: 'target', verb: N_('tir'), actor: 'shootingPlayerId', target: 'goalieInNetId' },
+  'missed-shot': { icon: 'move-up-right', verb: N_('tir raté'), actor: 'shootingPlayerId' },
+  'blocked-shot': { icon: 'shield', verb: N_('bloque'), actor: 'blockingPlayerId', target: 'shootingPlayerId' },
+  hit: { icon: 'zap', verb: N_('mise en échec'), actor: 'hittingPlayerId', target: 'hitteePlayerId' },
+  takeaway: { icon: 'hand-grab', verb: N_('vole la rondelle'), actor: 'playerId' },
+  giveaway: { icon: 'circle-slash', verb: N_('perd la rondelle'), actor: 'playerId' },
 };
 
 export const FEED_TYPES = new Set(Object.keys(FEED));
@@ -39,7 +40,7 @@ export class FeedBoard {
     row.style.setProperty('--opp', target ? teamColor(target.teamAbbrev) : 'transparent');
     row.dataset.player = actor.id;
     row.innerHTML = `${style === 'name' ? '' : headHtml(actor, style, heads)}<b class="feed-name">${esc(actor.last)}</b>
-      <span class="feed-act">${icon(f.icon, 'ic-sm')}<span>${esc(f.verb)}</span></span>
+      <span class="feed-act">${icon(f.icon, 'ic-sm')}<span>${esc(t(f.verb))}</span></span>
       ${target ? `<span class="feed-target">${esc(target.last)}</span>` : ''}`;
     this.el.prepend(row);
     while (this.el.children.length > this.max) this.el.lastElementChild.remove();
@@ -91,8 +92,8 @@ export class PenaltyBox {
         <div class="jail-bars">${'<i></i>'.repeat(7)}</div>
       </div>
       <div class="jail-text">
-        <div class="jail-stamp">Au cachot !</div>
-        <div class="jail-name">${esc(player?.name ?? 'Pénalité')}${player?.teamAbbrev ? ` <span>${esc(player.teamAbbrev)}</span>` : ''}</div>
+        <div class="jail-stamp">${t('Au cachot !')}</div>
+        <div class="jail-name">${esc(player?.name ?? t('Pénalité'))}${player?.teamAbbrev ? ` <span>${esc(player.teamAbbrev)}</span>` : ''}</div>
         <div class="jail-why">${icon('lock', 'ic-sm')}${esc(penaltyLabel(d.descKey))} · ${esc(String(d.duration ?? 2))} min</div>
       </div>`;
     this.el.classList.remove('show');
@@ -113,7 +114,7 @@ export class PenaltyBox {
       return;
     }
     this.cells.classList.add('show');
-    this.cells.innerHTML = `<div class="cells-head">${icon('lock', 'ic-sm')}Prison</div>${list
+    this.cells.innerHTML = `<div class="cells-head">${icon('lock', 'ic-sm')}${t('Prison')}</div>${list
       .map((p) => {
         const pl = p.player;
         const head = style === 'name' || !pl ? '' : headHtml(pl, style, heads);
@@ -142,12 +143,12 @@ export class SadGoal {
     const d = play?.details ?? {};
     const opp = game?.opp;
     this.el.style.setProperty('--opp', teamColor(opp?.abbrev));
-    const line = [player ? `${player.name}${d.scoringPlayerTotal ? ` · ${ordinalFr(d.scoringPlayerTotal)} but de la saison` : ''}` : opp ? `Les ${opp.name}` : '', score && game ? `${game.team.abbrev} ${score.team} – ${score.opp} ${opp?.abbrev ?? ''}` : ''].filter(Boolean);
+    const line = [player ? `${player.name}${d.scoringPlayerTotal ? ` · ${t('{n} but de la saison', { n: ordinalFr(d.scoringPlayerTotal) })}` : ''}` : opp ? t('Les {team}', { team: opp.name }) : '', score && game ? `${game.team.abbrev} ${score.team} – ${score.opp} ${opp?.abbrev ?? ''}` : ''].filter(Boolean);
     this.el.querySelectorAll('.sad-veil, .sad-word, .sad-info').forEach((n) => n.remove());
     this.el.insertAdjacentHTML(
       'beforeend',
-      `<div class="sad-veil"></div><div class="sad-word">${icon('heart-crack')}<span>But</span></div>
-       <div class="sad-info"><div class="sad-team">${esc(opp?.name ? `But des ${opp.name}` : 'But adverse')}</div>${line.map((l) => `<div class="sad-line">${esc(l)}</div>`).join('')}</div>`,
+      `<div class="sad-veil"></div><div class="sad-word">${icon('heart-crack')}<span>${t('But')}</span></div>
+       <div class="sad-info"><div class="sad-team">${esc(opp?.name ? t('But des {team}', { team: opp.name }) : t('But adverse'))}</div>${line.map((l) => `<div class="sad-line">${esc(l)}</div>`).join('')}</div>`,
     );
     this.el.classList.add('show');
     this.#rain(durationSec, teamColor(opp?.abbrev));
@@ -257,7 +258,7 @@ export class Celebration {
     this.logos = logos;
     const scorer = this.#scorerHtml({ player, play, game, emojiUrl, logos });
     this.el.querySelectorAll('.cel-flash, .cel-word, .cel-scorer').forEach((n) => n.remove());
-    this.el.insertAdjacentHTML('beforeend', `<div class="cel-flash"></div><div class="cel-word">BUT !</div>${scorer}`);
+    this.el.insertAdjacentHTML('beforeend', `<div class="cel-flash"></div><div class="cel-word">${t('BUT !')}</div>${scorer}`);
     this.el.classList.add('show');
     if (confetti) this.#confetti(durationSec, teamTheme(game?.team?.abbrev).confetti);
     this.timer = setTimeout(() => this.stop(), durationSec * 1000);
@@ -277,16 +278,16 @@ export class Celebration {
       .filter(Boolean)
       .map((p) => p.last);
     const lines = [];
-    if (d.scoringPlayerTotal) lines.push(`Son ${ordinalFr(d.scoringPlayerTotal)} but de la saison`);
-    lines.push(assists.length ? `Aides : ${assists.join(', ')}` : player ? 'Sans aide' : '');
-    if (play) lines.push(`${periodName(play.period, game?.gameType)}${play.period <= 3 ? ' période' : ''} · ${formatClock(play.tip)}`);
+    if (d.scoringPlayerTotal) lines.push(t('Son {n} but de la saison', { n: ordinalFr(d.scoringPlayerTotal) }));
+    lines.push(assists.length ? t('Aides : {list}', { list: assists.join(', ') }) : player ? t('Sans aide') : '');
+    if (play) lines.push(`${play.period <= 3 ? t('{p} période', { p: periodName(play.period, game?.gameType) }) : periodName(play.period, game?.gameType)} · ${formatClock(play.tip)}`);
     const scorer = player
       ? `<div class="cel-scorer">
            <div class="cel-photo${emojiUrl ? ' cel-emoji' : ''}">${emojiUrl ? `<img src="${esc(emojiUrl)}" alt="">` : photoHtml(player.headshot, initials(player))}</div>
            <div><div class="cel-name">${esc(player.first)} ${esc(player.last)} <span style="opacity:.7">#${esc(player.number ?? '')}</span></div>
            ${lines.filter(Boolean).map((l) => `<div class="cel-line">${esc(l)}</div>`).join('')}</div>
          </div>`
-      : `<div class="cel-scorer">${game?.team?.abbrev ? teamLogoHtml(game.team.abbrev, { cls: 'cel-logo', logos }) : ''}<div><div class="cel-name">But des ${esc(game?.team?.name ?? 'vôtres')} !</div><div class="cel-line">${esc(chant(game?.team?.abbrev, game?.team?.name))}</div></div></div>`;
+      : `<div class="cel-scorer">${game?.team?.abbrev ? teamLogoHtml(game.team.abbrev, { cls: 'cel-logo', logos }) : ''}<div><div class="cel-name">${esc(t('But des {team} !', { team: game?.team?.name ?? t('vôtres') }))}</div><div class="cel-line">${esc(chant(game?.team?.abbrev, game?.team?.name))}</div></div></div>`;
     return scorer;
   }
 
@@ -350,7 +351,7 @@ export class Celebration {
 // Cri de ralliement des partisans (sinon un « Allez les … ! » générique)
 const CHANTS = { MTL: 'Go Habs Go !', TOR: 'Go Leafs Go !', OTT: 'Go Sens Go !', BOS: "Let's go Bruins !", EDM: "Let's go Oilers !", VAN: 'Go Canucks Go !', WPG: 'Go Jets Go !', CGY: 'Go Flames Go !' };
 function chant(abbrev, name) {
-  return CHANTS[abbrev] ?? (name ? `Allez les ${name} !` : 'Quel but !');
+  return CHANTS[abbrev] ?? (name ? t('Allez les {team} !', { team: name }) : t('Quel but !'));
 }
 
 // ---------------------------------------------------------------- Notifications
@@ -367,18 +368,18 @@ export class Toasts {
     if (!this.el) return null;
     const id = key ?? text;
     for (const old of this.el.children) if (old.dataset.key === id) old.remove();
-    const t = document.createElement('div');
-    t.className = `toast ${kind}`;
-    t.dataset.key = id;
-    t.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
-    t.innerHTML = `${icon(KIND_ICON[kind] ?? 'info')}<div class="toast-msg"></div>
-      <button class="icon-btn icon-btn-sm toast-close" aria-label="Fermer">${icon('x', 'ic-sm')}</button>
+    const node = document.createElement('div');
+    node.className = `toast ${kind}`;
+    node.dataset.key = id;
+    node.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
+    node.innerHTML = `${icon(KIND_ICON[kind] ?? 'info')}<div class="toast-msg"></div>
+      <button class="icon-btn icon-btn-sm toast-close" aria-label="${t('Fermer')}">${icon('x', 'ic-sm')}</button>
       <i class="toast-timer" style="animation-duration:${Math.max(1000, ms)}ms"></i>`;
-    t.querySelector('.toast-msg').textContent = text;
+    node.querySelector('.toast-msg').textContent = text;
     const close = () => {
-      if (t.classList.contains('leaving')) return;
-      t.classList.add('leaving');
-      setTimeout(() => t.remove(), 220);
+      if (node.classList.contains('leaving')) return;
+      node.classList.add('leaving');
+      setTimeout(() => node.remove(), 220);
     };
     if (actions.length) {
       const row = document.createElement('div');
@@ -393,14 +394,14 @@ export class Toasts {
         });
         row.append(b);
       });
-      t.append(row);
+      node.append(row);
     }
-    t.querySelector('.toast-close').addEventListener('click', close);
+    node.querySelector('.toast-close').addEventListener('click', close);
     // Le minuteur s'arrête au survol : la notification reste tant qu'on la lit
-    t.querySelector('.toast-timer').addEventListener('animationend', close);
-    this.el.append(t);
+    node.querySelector('.toast-timer').addEventListener('animationend', close);
+    this.el.append(node);
     while (this.el.children.length > 4) this.el.firstElementChild.remove();
-    return t;
+    return node;
   }
 }
 

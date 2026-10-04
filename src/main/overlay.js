@@ -1,4 +1,5 @@
 import { BrowserWindow, desktopCapturer, globalShortcut, ipcMain, screen, session } from 'electron';
+import { t } from '../shared/i18n.js';
 
 // Mode surcouche : une fenêtre transparente, toujours au premier plan, que les clics traversent,
 // posée sur l'écran où le match joue en plein écran (navigateur ou appli du fournisseur télé).
@@ -8,7 +9,7 @@ export function listDisplays() {
   const primary = screen.getPrimaryDisplay();
   return screen.getAllDisplays().map((d, i) => ({
     id: String(d.id),
-    label: `Écran ${i + 1}${d.id === primary.id ? ' (principal)' : ''} · ${d.size.width}×${d.size.height}`,
+    label: `${t('Écran {n}', { n: i + 1 })}${d.id === primary.id ? t(' (principal)') : ''} · ${d.size.width}×${d.size.height}`,
     primary: d.id === primary.id,
   }));
 }
@@ -131,7 +132,7 @@ export class OverlayController {
       hasShadow: false,
       alwaysOnTop: true,
       show: false,
-      title: 'Rondelle — surcouche',
+      title: `Rondelle — ${t('surcouche')}`,
       webPreferences: { preload: this.preload, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
     });
     win.setAlwaysOnTop(true, 'screen-saver');

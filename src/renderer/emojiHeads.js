@@ -1,3 +1,4 @@
+import { t } from '../shared/i18n.js';
 import { TEAMS, teamColor, teamLabel } from '../shared/nhl.js';
 
 // Têtes émoji des joueurs : générées sur votre ordinateur à partir des photos officielles de la
@@ -148,7 +149,7 @@ export class EmojiHeads {
     const hit = this.rosters.get(team);
     if (hit && Date.now() - hit.at < 30 * 60_000) return hit.players;
     const res = await nhl.api(`/v1/roster/${team}/current`);
-    if (!res?.ok) throw new Error(res?.error ?? `effectif indisponible (${res?.status ?? 'réseau'})`);
+    if (!res?.ok) throw new Error(res?.error ?? t('effectif indisponible ({why})', { why: res?.status ?? t('réseau') }));
     const players = rosterPlayers(res.data, team);
     if (!players.length) throw new Error('effectif vide');
     this.rosters.set(team, { at: Date.now(), players });
@@ -169,7 +170,7 @@ export class EmojiHeads {
       key: this.key(p),
       name: `${p.number != null ? String(p.number).padStart(2, '0') : '--'} ${p.first} ${p.last}`,
     }));
-    return window.rondelle.exportHeads({ folder: `Têtes ${teamLabel(team)} ${seasonLabel()}`, files, open });
+    return window.rondelle.exportHeads({ folder: t('Têtes {team} {season}', { team: teamLabel(team), season: seasonLabel() }), files, open });
   }
 }
 

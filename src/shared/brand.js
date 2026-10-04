@@ -1,6 +1,8 @@
+import { N_ } from './i18n.js';
+
 // Identité de l'application : un seul endroit à changer pour la renommer.
 export const APP_NAME = 'Rondelle';
-export const APP_TAGLINE = 'La régie télé de vos matchs de hockey';
+export const APP_TAGLINE = N_('La régie télé de vos matchs de hockey');
 export const APP_SCHEME = 'rondelle';
 export const REPO = 'Charlatan92/canadian';
 export const REPO_URL = `https://github.com/${REPO}`;
