@@ -51,9 +51,15 @@ export class Director {
     nhl.on('game', (g) => this.#onGame(g));
     nhl.on('schedule', () => this.#renderGamePill());
     bridge.on('status', (s) => {
+      const size = `${s.video?.vw}x${s.video?.vh}`;
       this.lastStatus = s;
       this.lastStatusAt = Date.now();
+      if (size !== this.videoSize) {
+        this.videoSize = size;
+        this.#placeOverlays();
+      }
     });
+    window.addEventListener('resize', () => this.#placeOverlays());
     bridge.on('frame', (f) => vision.onFrame(f));
     bridge.on('audio', (a) => {
       this.audioLevel = a.rmsDb;
@@ -103,10 +109,15 @@ export class Director {
     const bugRight = bug && bug[0] + bug[2] > 0.62;
     document.body.classList.toggle('bug-bottom', !!bugBottom);
     document.body.classList.toggle('bug-bottom-right', !!(bugBottom && bugRight));
-    // Le fil des actions (en haut à droite) passe sous le logo de la chaîne ou un tableau placé là
+    // Le fil des actions (en haut à droite) passe sous le logo de la chaîne ou un tableau placé là.
+    // Les zones calibrées sont relatives à l'image : on tient compte des bandes noires autour.
+    const box = document.getElementById('overlay');
+    if (!box) return;
     const topRight = [p?.logo, p?.scorebug].filter((r) => r && r[0] + r[2] > 0.6 && r[1] < 0.3);
     const below = topRight.length ? Math.max(...topRight.map((r) => r[1] + r[3])) : 0;
-    document.getElementById('overlay')?.style.setProperty('--feed-top', below ? `calc(${(below * 100).toFixed(1)}% + 10px)` : '16px');
+    const { top, right, height } = videoBox(box.clientWidth, box.clientHeight, this.lastStatus?.video);
+    box.style.setProperty('--feed-top', `${Math.round(top + below * height + (below ? 10 : 16))}px`);
+    box.style.setProperty('--feed-right', `${Math.round(right + 16)}px`);
   }
 
   activeProfile() {
@@ -628,4 +639,14 @@ export class Director {
       ].join('\n'),
     );
   }
+}
+
+// Place de l'image dans la zone des graphiques (vidéo « contain » : bandes noires en haut et en bas,
+// ou sur les côtés, quand les proportions diffèrent)
+export function videoBox(w, h, video) {
+  if (!w || !h || !video?.vw || !video?.vh) return { top: 0, right: 0, width: w, height: h };
+  const k = Math.min(w / video.vw, h / video.vh);
+  const width = video.vw * k;
+  const height = video.vh * k;
+  return { top: (h - height) / 2, right: (w - width) / 2, width, height };
 }

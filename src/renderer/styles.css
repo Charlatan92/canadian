@@ -1261,7 +1261,7 @@ body.overlays-hidden #overlay > :not(#hud) {
 .feed {
   position: absolute;
   top: var(--feed-top, 16px);
-  right: 16px;
+  right: var(--feed-right, 16px);
   display: flex;
   flex-direction: column;
   align-items: flex-end;

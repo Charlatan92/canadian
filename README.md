@@ -211,7 +211,7 @@ src/shared/      logique pure et testée : synchro, pubs (vraies pubs / ralentis
 Tests :
 
 ```bash
-npm test                     # logique (48 tests, dont les traductions)
+npm test                     # logique (49 tests, dont les traductions)
 xvfb-run -a npm run test:e2e # bout en bout (sous Windows : npm run test:e2e)
 ```
 

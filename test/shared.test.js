@@ -772,3 +772,19 @@ test('traductions anglaises : aucun texte de l\'interface sans traduction', asyn
   const out = execFileSync(process.execPath, ['scripts/i18n-check.mjs'], { encoding: 'utf8', cwd: new URL('..', import.meta.url).pathname });
   assert.match(out, / 0 sans traduction/);
 });
+
+test('graphiques : place de l\'image avec bandes noires (fil des actions sous le logo)', async () => {
+  const { videoBox } = await import('../src/renderer/director.js');
+  // Fenêtre 16:10 : bandes noires en haut et en bas
+  const b = videoBox(1440, 848, { vw: 1920, vh: 1080 });
+  assert.equal(b.width, 1440);
+  assert.equal(b.height, 810);
+  assert.equal(b.top, 19);
+  assert.equal(b.right, 0);
+  // Écran ultra-large : bandes sur les côtés
+  const u = videoBox(2560, 1080, { vw: 1920, vh: 1080 });
+  assert.equal(u.right, 320);
+  assert.equal(u.top, 0);
+  // Taille de la vidéo inconnue : toute la zone
+  assert.deepEqual(videoBox(1000, 500, null), { top: 0, right: 0, width: 1000, height: 500 });
+});
