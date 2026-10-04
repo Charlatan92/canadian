@@ -60,7 +60,7 @@ Vous choisissez à l'accueil, et pouvez changer à tout moment (Réglages › G�
 
 | Face à face | Le but à la loupe |
 |---|---|
-| ![Émission : les gardiens des deux équipes face à face](docs/face-a-face.jpg) | ![Analyse d'un but : position du tir sur la patinoire, type de tir, distance, passeurs](docs/but-loupe.jpg) |
+| ![Émission : un joueur de chaque équipe, chacun de son côté, stats au milieu](docs/face-a-face.jpg) | ![Analyse d'un but : position du tir sur la patinoire, type de tir, distance, passeurs](docs/but-loupe.jpg) |
 
 ## Installation
 
@@ -118,9 +118,8 @@ Général, Lecteur intégré, Surcouche TV, Son, Graphiques, Pauses pub, Synchro
   PNG transparents dans `Images\Rondelle\Têtes <équipe> 2026-27\`. Un joueur sans photo reçoit un casque
   aux couleurs de son équipe.
 
-| Fil des actions : nom seulement | Fil des actions : têtes émoji |
-|---|---|
-| ![Fil des actions avec les noms des joueurs](docs/fil-noms.jpg) | ![Fil des actions avec les têtes émoji (portraits de test)](docs/fil-emoji.jpg) |
+Dans le fil des actions, chaque joueur apparaît au choix avec sa photo, son nom seulement ou sa tête
+émoji (Réglages › Graphiques).
 
 ## Klaxons et chansons de but
 

@@ -103,7 +103,9 @@ for (const style of ['photo', 'name', 'emoji']) {
     if (st === 'emoji') return !!row.querySelector('img.feed-head.emoji');
     return !!row.querySelector('.feed-head');
   }, style);
-  await win.screenshot({ path: path.join(outDir, `fil-${style}.png`) });
+  // Capture native d'Electron : celle de Playwright décale le contenu du lecteur intégré (webview)
+  const png = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].webContents.capturePage()).toPNG().toString('base64'));
+  fs.writeFileSync(path.join(outDir, `fil-${style}.png`), Buffer.from(png, 'base64'));
 }
 
 const exported = await win.evaluate(() => window.rondelle.exportHeads({ folder: 'Test export', files: [{ key: 'p990013', name: '13 Test Photo' }], open: false }));
