@@ -769,7 +769,8 @@ test('langue de l\'interface : anglais, automatique, pluriels et ordinaux', asyn
 
 test('traductions anglaises : aucun texte de l\'interface sans traduction', async () => {
   const { execFileSync } = await import('node:child_process');
-  const out = execFileSync(process.execPath, ['scripts/i18n-check.mjs'], { encoding: 'utf8', cwd: new URL('..', import.meta.url).pathname });
+  const { fileURLToPath } = await import('node:url');
+  const out = execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/i18n-check.mjs', import.meta.url))], { encoding: 'utf8' });
   assert.match(out, / 0 sans traduction/);
 });
 
